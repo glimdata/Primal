@@ -445,9 +445,11 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
 static void *conc_worker(void *arg) {
     ConcJob *j = (ConcJob *)arg;
     clock_t t0 = clock();
+    double work = 0.0, *prev = work_open(&work);
     j->status = solve_std_routed(j->Aptr, j->Arow, j->Aval, j->Qptr, j->Qrow, j->Qval,
                                  j->m, j->n, j->b, j->c, j->t, j->xt, j->ystd, j->zst,
                                  j->x0, j->y0, j->method, j->dray, j->pray);
+    work_end(j->t, prev, work);
     j->elapsed = (double)(clock() - t0) / (double)CLOCKS_PER_SEC;
     return NULL;
 }

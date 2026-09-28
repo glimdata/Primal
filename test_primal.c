@@ -19943,8 +19943,89 @@ static void test_t272(void) {
     pend(&p);
 }
 
+/* Ticks of the last solve, through the public information item. */
+static double t273_ticks(PRIMALtask_t t) {
+    double v = -1.0;
+    check_rc(PRIMAL_getdouinf(t, PRIMAL_DINF_OPTIMIZER_TICKS, &v), PRIMAL_RES_OK, "T273 getdouinf ticks");
+    return v;
+}
+/* A transportation LP with `k` sources and `k` sinks: k^2 variables, 2k rows,
+ * the same structure at every size, so ticks may only grow with k. */
+static void t273_transport(PRIMALtask_t t, int k) {
+    PRIMAL_appendvars(t, k * k); PRIMAL_appendcons(t, 2 * k);
+    for (int i = 0; i < k; i++)
+        for (int j = 0; j < k; j++) {
+            int v = i * k + j;
+            PRIMAL_putvarbound(t, v, PRIMAL_BK_LO, 0.0, INFINITY);
+            PRIMAL_putcj(t, v, 1.0 + (double)((i * 7 + j * 3) % 5));
+            PRIMAL_putaij(t, i, v, 1.0);
+            PRIMAL_putaij(t, k + j, v, 1.0);
+        }
+    for (int i = 0; i < k; i++) PRIMAL_putconbound(t, i, PRIMAL_BK_FX, 1.0, 1.0);
+    for (int j = 0; j < k; j++) PRIMAL_putconbound(t, k + j, PRIMAL_BK_FX, 1.0, 1.0);
+    PRIMAL_putobjsense(t, PRIMAL_OPTIMIZE_MINIMIZE);
+}
+/* T273: DINF_OPTIMIZER_TICKS is the deterministic work of the last solve */
+static void test_t273(void) {
+    cur_name = "T273 getdouinf: optimizer ticks of the last solve";
+    P p; pbegin(&p); PRIMALtask_t t = p.task;
+    check(t273_ticks(t) == 0.0, "T273 unsolved task: ticks are 0");
+
+    PRIMAL_appendvars(t, 2); PRIMAL_appendcons(t, 2);
+    PRIMAL_putvarbound(t, 0, PRIMAL_BK_LO, 0.0, INFINITY);
+    PRIMAL_putvarbound(t, 1, PRIMAL_BK_LO, 0.0, INFINITY);
+    PRIMAL_putcj(t, 0, 1.0); PRIMAL_putcj(t, 1, 10.0);
+    PRIMAL_putarow(t, 0, 2, (int[]){0, 1}, (double[]){1.0, 2.0});
+    PRIMAL_putarow(t, 1, 2, (int[]){0, 1}, (double[]){2.0, 1.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_LO, 2.0, INFINITY);
+    PRIMAL_putconbound(t, 1, PRIMAL_BK_LO, 2.0, INFINITY);
+    PRIMAL_putobjsense(t, PRIMAL_OPTIMIZE_MINIMIZE);
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 LP optimize");
+    double lp_ticks = t273_ticks(t);
+    check(lp_ticks > 0.0, "T273 LP: ticks are positive after a solve");
+    check(t273_ticks(t) == lp_ticks, "T273 LP: reading the item twice gives the same value");
+
+    { int qi[] = {0, 1}; int qj[] = {0, 1}; double qv[] = {2.0, 2.0};
+      PRIMAL_putqobj(t, 2, qi, qj, qv); }
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 QP optimize");
+    check(t273_ticks(t) > 0.0, "T273 QP: ticks are positive after a solve");
+    pend(&p);
+
+    pbegin(&p); t = p.task;
+    PRIMAL_appendvars(t, 3); PRIMAL_appendcons(t, 1);
+    for (int j = 0; j < 3; j++) {
+        PRIMAL_putvarbound(t, j, PRIMAL_BK_RA, 0.0, 1.0);
+        PRIMAL_putvartype(t, j, PRIMAL_VAR_TYPE_INT_BIN);
+    }
+    PRIMAL_putcj(t, 0, 5.0); PRIMAL_putcj(t, 1, 4.0); PRIMAL_putcj(t, 2, 3.0);
+    PRIMAL_putarow(t, 0, 3, (int[]){0, 1, 2}, (double[]){2.0, 3.0, 1.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_UP, -INFINITY, 5.0);
+    PRIMAL_putobjsense(t, PRIMAL_OPTIMIZE_MAXIMIZE);
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 MIP optimize");
+    check(t273_ticks(t) > 0.0, "T273 MIP: ticks are positive after a solve");
+    pend(&p);
+
+    /* reset: the second solve of one task reports its own work, not the sum */
+    pbegin(&p); t = p.task;
+    t273_transport(t, 4);
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 transport 4 optimize");
+    double once = t273_ticks(t);
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 transport 4 re-optimize");
+    double again = t273_ticks(t);
+    check(once > 0.0 && again == once, "T273 re-solve: ticks are reset, the same solve reports the same ticks");
+    pend(&p);
+
+    /* monotone in size: the same family at 2x the width takes more work */
+    pbegin(&p); t = p.task;
+    t273_transport(t, 8);
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T273 transport 8 optimize");
+    check(t273_ticks(t) > once, "T273 size: a 2x larger LP of the same structure reports more ticks");
+    pend(&p);
+}
+
 /* test runner: executes all tests and prints the pass/fail summary. */
 int main(void) {
+    test_t273();
     test_t272();
     test_t271();
     test_t270();

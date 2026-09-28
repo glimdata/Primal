@@ -1162,6 +1162,15 @@ void count_add(int *slot, int n) {
     *slot += n;
     pthread_mutex_unlock(&g_count_mx);
 }
+void count_addd(double *slot, double v) {
+    pthread_mutex_lock(&g_count_mx);
+    *slot += v;
+    pthread_mutex_unlock(&g_count_mx);
+}
+void work_end(PRIMALtask_t t, double *prev, double work) {
+    work_close(prev);
+    count_addd(&t->work, work);
+}
 /* Carry the counters of a clone that worked on dst's behalf into dst. */
 void count_fold(PRIMALtask_t dst, const PRIMALtask_t src) {
     if (!src) return;
@@ -1171,6 +1180,7 @@ void count_fold(PRIMALtask_t dst, const PRIMALtask_t src) {
     count_add(&dst->mio_relax, src->mio_relax);
     count_add(&dst->mio_nodes, src->mio_nodes);
     count_add(&dst->mio_branch, src->mio_branch);
+    count_addd(&dst->work, src->work);
 }
 
 /* Allocate the per-variable and per-constraint arrays for the current

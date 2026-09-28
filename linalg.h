@@ -43,6 +43,17 @@ double dvec_dot(int n, const double *x, const double *y);
 double dvec_norm2(int n, const double *x);
 double dvec_norm_inf(int n, const double *x);
 
+/* ---- work ledger: the operation count behind the optimizer ticks ----
+ * The thread running a solve opens an accumulator; every kernel adds the
+ * operations it performs (multiply-adds, entries visited, scan steps) to the
+ * accumulator its thread has open, and adds nothing when none is open (a
+ * kernel called outside a solve).  work_open returns the accumulator that was
+ * open before, for work_close to restore, so a solve nested in another (a
+ * worker run inline, an optimize from a callback) counts into its own. */
+double *work_open(double *acc);
+void work_close(double *prev);
+void work_add(double ops);
+
 /* ---- reusable LU factorization (used by the interior-point solver) ---- */
 typedef struct {
     int n;

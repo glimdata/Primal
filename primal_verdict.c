@@ -898,6 +898,10 @@ PRIMALrescodee PRIMAL_optimize(PRIMALtask_t t) {
     if (t) { t->opt_deadline = deadline; t->mip_deadline = mip_deadline; }
     if (t) t->intpnt_iter = t->sim_primal_iter = t->sim_dual_iter =
            t->mio_relax = t->mio_nodes = t->mio_branch = 0;
+    /* This thread's work ledger for the whole solve; the worker threads keep
+     * their own and add them to the task they serve. */
+    double work = 0.0, *work_prev = NULL;
+    if (t) { t->work = 0.0; work_prev = work_open(&work); }
     ipm_set_deadline(deadline);
     ipm_set_max_cor(t ? t->intpnt_max_cor : -1);
     /* Objective cuts in min-space: for a minimization the two cuts are as
@@ -962,7 +966,10 @@ PRIMALrescodee PRIMAL_optimize(PRIMALtask_t t) {
         intpnt_identify_basis(t);
         intpnt_crossover_cleanup(t);
     }
-    if (t) { t->last_rc = r; t->opt_time = (double)(clock() - opt_t0) / (double)CLOCKS_PER_SEC; }
+    if (t) {
+        work_end(t, work_prev, work);
+        t->last_rc = r; t->opt_time = (double)(clock() - opt_t0) / (double)CLOCKS_PER_SEC;
+    }
     return r;
 }
 

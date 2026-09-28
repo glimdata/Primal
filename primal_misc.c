@@ -1317,6 +1317,7 @@ PRIMALrescodee PRIMAL_getdouinf(PRIMALtask_t t, PRIMALdinfiteme which, PRIMALrea
     case PRIMAL_DINF_OPTIMIZER_TIME:      *value = t->opt_time; break;
     case PRIMAL_DINF_SIM_TIME:            *value = t->opt_time; break;
     case PRIMAL_DINF_MIO_TIME:            *value = t->opt_time; break;
+    case PRIMAL_DINF_OPTIMIZER_TICKS:     *value = t->work / WORK_OPS_PER_TICK; break;
     case PRIMAL_DINF_ANA_PRO_SCALARIZED_CONSTRAINT_MATRIX_DENSITY: {
         int nz = 0, nv = 0, nc = 0;
         PRIMAL_getnumanz(t, &nz); PRIMAL_getnumvar(t, &nv); PRIMAL_getnumcon(t, &nc);

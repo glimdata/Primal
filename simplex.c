@@ -71,6 +71,7 @@ static void tab_pivot(Tab *t, int lev, int ent) {
     double *T = t->T;
     double piv = T[lev * stride + ent];
     double *rl = T + lev * stride;
+    double ops = (double)(ntot + 1);
     for (int j = 0; j <= ntot; j++) rl[j] /= piv;
     rl[ent] = 1.0;
     for (int i = 0; i <= t->m; i++) {
@@ -78,9 +79,11 @@ static void tab_pivot(Tab *t, int lev, int ent) {
         double *ri = T + i * stride;
         double f = ri[ent];
         if (f == 0.0) continue;
+        ops += (double)(ntot + 1);
         for (int j = 0; j <= ntot; j++) ri[j] -= f * rl[j];
         ri[ent] = 0.0;
     }
+    work_add(ops);
     t->basis[lev] = ent;
 }
 
@@ -109,6 +112,7 @@ static int enter_col(const Tab *t, int bland) {
      * gamma = 1 + ||column_j||^2 of the tableau. Longer pivots but fewer
      * iterations; the default stays Dantzig (O(n) cost per iteration). */
     if (getenv("GMB_SIMPLEX_STEEPEST")) {
+        work_add((double)n * t->m);
         int best = -1; double bestscore = 0.0;
         for (int j = 0; j < n; j++) {
             if (red[j] >= -RED_EPS) continue;
@@ -206,6 +210,7 @@ static int run_phase(Tab *t, int max_iter, int *ent_out) {
     for (int it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(93);
         double *red = t->T + t->m * t->stride;
+        work_add((double)t->n + t->m);   /* pricing and the ratio test */
         int ent = enter_col(t, bland);
         if (ent < 0) return SIMP_OPTIMAL;
         int lev = leave_row(t, ent, bland, pure, NULL);
@@ -247,6 +252,7 @@ int simplex_solve_std_tab(const double *A, int m, int n,
         t.basis[i] = n + i;
     }
     double *red = t.T + m * t.stride;
+    work_add(3.0 * (m + 1) * t.stride);   /* the tableau, the phase-1 and the phase-2 cost rows */
 
     /* ---------- phase 1 ---------- */
     for (int j = 0; j < t.ntot; j++) {
@@ -443,8 +449,10 @@ int simplex_dual_solve_std(const double *A, int m, int n,
         }
         { double s = 0.0; for (k = 0; k < m; k++) s += M[(size_t)i * 2 * m + k] * b[k]; T[(size_t)i * ncols + n] = s; }
     }
+    work_add(2.0 * m * m * m + (double)m * m * (n + 1));   /* B^-1 by Gauss-Jordan, then B^-1 [A b] */
     for (it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(36);
+        work_add(2.0 * m * n + (double)m * (n + 1));   /* reduced costs, the basic scan, the pivot */
         int r = -1, ent = -1;
         double worst = -1e-9, bestratio = 1e300;
         for (i = 0; i < m; i++) cB[i] = c[bas[i]];
@@ -577,8 +585,10 @@ int simplex_revised_solve_std(const double *A, int m, int n,
     for (i = 0; i < m; i++) bas[i] = basis[i];
     for (i = 0; i < m; i++) { double s = 0.0; for (k = 0; k < m; k++) s += Binv[(size_t)i * m + k] * b[k]; xB[i] = s; }
     for (i = 0; i < m; i++) if (xB[i] < -1e-7) { free(Binv); free(xB); free(y); free(d); free(cB); free(bas); return 1; }
+    work_add(2.0 * m * m * m + (double)m * m);   /* B^-1 by Gauss-Jordan, then xB */
     for (it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(93);
+        work_add(2.0 * n * m + 4.0 * m * m);   /* duals, pricing with the basic scan, d, the eta update, xB */
         int ent = -1, lev = -1;
         double bestred = -1e-9, bestratio = 1e300;
         for (i = 0; i < m; i++) cB[i] = c[bas[i]];
@@ -646,8 +656,10 @@ int simplex_crash_basis(const double *A, int m, int n, int *basis)
     memcpy(W, A, (size_t)m * (size_t)n * sizeof(double));
     for (int j = 0; j < n; j++) col[j] = j;
     int ok = 1;
+    double ops = 0.0;
     for (int r = 0; r < m; r++) {
         int pi = r, pj = r; double mx = 0.0;
+        ops += (double)(m - r) * (n - r);   /* the complete-pivoting search */
         for (int i = r; i < m; i++)
             for (int c = r; c < n; c++) { double v = fabs(W[(size_t)i * n + c]); if (v > mx) { mx = v; pi = i; pj = c; } }
         if (mx < 1e-9) { ok = 0; break; }   /* rank < m */
@@ -658,9 +670,10 @@ int simplex_crash_basis(const double *A, int m, int n, int *basis)
         if (pi != r) for (int c = 0; c < n; c++) { double t = W[(size_t)r * n + c]; W[(size_t)r * n + c] = W[(size_t)pi * n + c]; W[(size_t)pi * n + c] = t; }
         for (int i = r + 1; i < m; i++) {
             double f = W[(size_t)i * n + r] / W[(size_t)r * n + r];
-            if (f != 0.0) for (int c = r; c < n; c++) W[(size_t)i * n + c] -= f * W[(size_t)r * n + c];
+            if (f != 0.0) { ops += (double)(n - r); for (int c = r; c < n; c++) W[(size_t)i * n + c] -= f * W[(size_t)r * n + c]; }
         }
     }
+    work_add(ops);
     if (ok) for (int r = 0; r < m; r++) basis[r] = col[r];
     free(W); free(col);
     return ok;

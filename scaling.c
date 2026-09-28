@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include "scaling.h"
+#include "linalg.h"
 
 /* Nearest power of 2 to x (>0), clamped to [2^-24, 2^24].
  * Returns 1.0 for non-positive or NaN input. */
@@ -77,17 +78,24 @@ void scale_equilibrate(int nvar, int ncon,
     for (int i = 0; i < ncon; i++) r[i] = 1.0;
     for (int j = 0; j < nvar; j++) d[j] = 1.0;
 
+    /* Each row pass scans the whole matrix once per row (and once more per
+     * scaled row); each column pass scans it twice. */
+    const double nnz = (double)ptr[nvar];
+    double ops = 0.0;
     for (int it = 0; it < 4; it++) {
+        ops += 2.0 * nnz;
         /* ---- row pass ---- */
         for (int i = 0; i < ncon; i++) {
             double sum = 0.0;
             int cnt = 0;
+            ops += nnz;
             for (int j = 0; j < nvar; j++)
                 for (int k = ptr[j]; k < ptr[j + 1]; k++)
                     if (sub[k] == i) { sum += val[k] * val[k]; cnt++; }
             if (cnt == 0) continue;
             double f = pow2_round(1.0 / sqrt(sum / (double)cnt));
             if (f == 1.0) continue;
+            ops += nnz;
             r[i] *= f;
             lc[i] *= f; uc[i] *= f;
             for (int j = 0; j < nvar; j++)
@@ -115,4 +123,5 @@ void scale_equilibrate(int nvar, int ncon,
             }
         }
     }
+    work_add(ops);
 }

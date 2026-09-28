@@ -97,6 +97,7 @@ name) accept every information-item id of the reference. The measured ones:
 | Item | Value |
 |---|---|
 | `DINF_OPTIMIZER_TIME`, `DINF_SIM_TIME`, `DINF_MIO_TIME` | CPU seconds of the last `optimize` |
+| `DINF_OPTIMIZER_TICKS` | deterministic work of the last `optimize`: the operations its factorizations, triangular solves, orderings, pivots, eigensolves, matrix products and barrier evaluations performed, in millions |
 | `DINF_*_OBJ`, `DINF_MIO_OBJ_*`, `DINF_SOL_ITR_*`, `DINF_SOL_ITG_*` | objectives, gaps, violations and norms of the published point |
 | `IINF_INTPNT_ITER` | iterations of the linear/quadratic interior point |
 | `IINF_SIM_PRIMAL_ITER`, `IINF_SIM_DUAL_ITER` | pivots of the primal and of the dual simplex |
@@ -110,6 +111,16 @@ made on the task's behalf: the route itself, the node relaxations of
 branch-and-bound (probing and strong branching included), the LP masters of
 the cut loops and each engine of the concurrent optimizer. The conic interior
 point (SOCP, SDP, exponential and power cones) is not counted.
+
+The ticks count what the solve did, not how long it took: every run of the
+same binary on the same model with the same parameters reports the same
+number, whatever the load on the machine or the number of threads (a solve
+that uses several threads reports the sum of their work). A different
+compiler or architecture changes the count only where its rounding changes
+the iterates, and then by the iterations it adds or removes. Every route
+contributes, the conic interior point, the tangent-cut loops, scaling and the
+crossover included. The ratio of seconds to ticks depends on the machine and,
+within a machine, on the route.
 
 ## Reading the model back
 

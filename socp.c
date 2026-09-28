@@ -343,6 +343,7 @@ int socp_solve(int n, int p,
 
     for (int it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(34);
+        work_add((double)N * N + 6.0 * (p + K) * n);   /* residuals, KKT assembly, step recovery */
         /* residuals */
         for (int i = 0; i < p; i++) {
             double t = -d[i];
@@ -958,6 +959,7 @@ int socp_solve_sparse(int n,int p,const double *E,const double *d,const double *
     int no_progress=0;
     for(int it=0;it<max_iter;it++){
         if(primal_cb_iter_on) primal_cb_iter(34);
+        work_add(6.0*(SE.rp[p]+SG.rp[K])+2.0*n*p);   /* residuals and step recovery through E, G and Z */
         if(p>0){sp_row(&SE,xs,rp,p);for(int i=0;i<p;i++)rp[i]-=d[i];}
         sp_row(&SG,xs,rg,K);for(int k=0;k<K;k++)rg[k]+=h[k]-s[k];
         for(int j=0;j<n;j++)rd[j]=c[j];
@@ -1018,6 +1020,7 @@ int socp_solve_sparse(int n,int p,const double *E,const double *d,const double *
                   for(int z=0;z<nt;z++){int col=wtouch[z]; if(a>=col) if(tri3_add(&tri,a,col,ga*wacc[col])){status=OPT_MEMORY;goto done;}}}
               }
               o+=kk;}}
+            work_add((double)maxk*SG.rp[K]);   /* H = G' Q(w)^{-1} G */
             int *Hp,*Hi; double *Hv;
             if(tri3_to_csc(n,&tri,&Hp,&Hi,&Hv)){status=OPT_MEMORY;goto done;}
             Hchol=spchol_factor(n,Hp,Hi,Hv);
@@ -1046,6 +1049,7 @@ int socp_solve_sparse(int n,int p,const double *E,const double *d,const double *
                 for(int i=0;i<p;i++)for(int i2=0;i2<=i;i2++){double sv=0;
                     for(int q=SE.rp[i];q<SE.rp[i+1];q++){int j=SE.ri[q]; sv+=SE.rv[q]*Znt[(size_t)i2*n+j];}
                     if(sv!=0.0) if(tri3_add(&stri,i,i2,sv)){status=OPT_MEMORY;goto done;}}
+                work_add((double)p*SE.rp[p]);   /* S = E H^{-1} E' */
                 int *Sp,*Si; double *Sv;
                 if(tri3_to_csc(p,&stri,&Sp,&Si,&Sv)){status=OPT_MEMORY;goto done;}
                 Schol=spchol_factor(p,Sp,Si,Sv);

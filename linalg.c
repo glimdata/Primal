@@ -21,11 +21,38 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <pthread.h>
 #include "linalg.h"
 
 /* sub-step callback hook (implemented in primal.c) */
 extern int primal_cb_iter_on;
 void primal_cb_iter(int code);
+
+/* One open accumulator per thread (see linalg.h).  The key is created on first
+ * use by whichever thread gets there first; a kernel that runs before any
+ * solve has opened an accumulator finds none and adds nothing. */
+static pthread_key_t g_work_key;
+static pthread_once_t g_work_once = PTHREAD_ONCE_INIT;
+static int g_work_key_ok = 0;
+static void work_key_create(void) { g_work_key_ok = (pthread_key_create(&g_work_key, NULL) == 0); }
+double *work_open(double *acc) {
+    pthread_once(&g_work_once, work_key_create);
+    if (!g_work_key_ok) return NULL;
+    double *prev = (double *)pthread_getspecific(g_work_key);
+    *acc = 0.0;
+    pthread_setspecific(g_work_key, acc);
+    return prev;
+}
+void work_close(double *prev) {
+    pthread_once(&g_work_once, work_key_create);
+    if (g_work_key_ok) pthread_setspecific(g_work_key, prev);
+}
+void work_add(double ops) {
+    pthread_once(&g_work_once, work_key_create);
+    if (!g_work_key_ok) return;
+    double *acc = (double *)pthread_getspecific(g_work_key);
+    if (acc) *acc += ops;
+}
 
 /**
  * Creates a new dense matrix (row-major).
@@ -282,6 +309,7 @@ LuFact *dmat_lu_factor(const double *A, int n) {
     if (!f->lu || !f->piv) { dmat_lu_free(f); return NULL; }
     memcpy(f->lu, A, (size_t)n * (size_t)n * sizeof(double));
     f->ok = 1;
+    double ops = 0.0;
     for (int k = 0; k < n; k++) {
         int p = k;
         double maxv = fabs(f->lu[k * n + k]);
@@ -301,11 +329,14 @@ LuFact *dmat_lu_factor(const double *A, int n) {
         for (int i = k + 1; i < n; i++) {
             double mlt = f->lu[i * n + k] / pivv;
             f->lu[i * n + k] = mlt;
-            if (mlt != 0.0)
+            if (mlt != 0.0) {
+                ops += (double)(n - k - 1);
                 for (int j = k + 1; j < n; j++)
                     f->lu[i * n + j] -= mlt * f->lu[k * n + j];
+            }
         }
     }
+    work_add(ops);
     if (!f->ok) { dmat_lu_free(f); return NULL; }
     return f;
 }
@@ -351,6 +382,7 @@ static double nsum_prod(const double *a, const double *b, int n) {
 int dmat_lu_solve(const LuFact *f, double *rhs) {
     if (!f || !f->ok) return -1;
     int n = f->n;
+    work_add((double)n * n);
     /* apply row swaps */
     for (int k = 0; k < n; k++) {
         int p = f->piv[k];
@@ -385,6 +417,7 @@ int dmat_lu_solve(const LuFact *f, double *rhs) {
 int dmat_lu_solve_comp(const LuFact *f, double *rhs) {
     if (!f || !f->ok) return -1;
     int n = f->n;
+    work_add(2.0 * n * n);   /* the product residual and the two-sum double each term */
     for (int k = 0; k < n; k++) {
         int p = f->piv[k];
         if (p != k) { double t = rhs[k]; rhs[k] = rhs[p]; rhs[p] = t; }
@@ -427,15 +460,18 @@ void dmat_eig_jacobi(int n, const double *A, double *eval, double *evec) {
     for (int i = 0; i < n * n; i++) fnorm2 += A[i] * A[i];
     /* An overflowing squared norm must not make every iterate look converged. */
     double tol = isfinite(fnorm2) ? 1e-28 * fnorm2 : 1e-30;
+    double ops = 0.0;
     for (int sweep = 0; sweep < 100; sweep++) {
         double off = 0.0;
         for (int p = 0; p < n; p++)
             for (int q = p + 1; q < n; q++) off += W[p * n + q] * W[p * n + q];
+        ops += 0.5 * (double)n * n;
         if (off <= tol) break;
         for (int p = 0; p < n; p++) {
             for (int q = p + 1; q < n; q++) {
                 double apq = W[p * n + q];
                 if (fabs(apq) < 1e-32) continue;
+                ops += 6.0 * n;   /* three rotations of n pairs */
                 double theta = (W[q * n + q] - W[p * n + p]) / (2.0 * apq);
                 double t = (theta >= 0.0 ? 1.0 : -1.0) /
                            (fabs(theta) + sqrt(theta * theta + 1.0));
@@ -458,6 +494,7 @@ void dmat_eig_jacobi(int n, const double *A, double *eval, double *evec) {
             }
         }
     }
+    work_add(ops);
     for (int i = 0; i < n; i++) eval[i] = W[i * n + i];
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) evec[i * n + j] = V[i * n + j];
@@ -500,6 +537,7 @@ static SpChol *spchol_factor_nat(int n, const int *Kp, const int *Ki, const doub
         return NULL;
     }
 
+    double ops = (double)Kp[n];   /* the scatter of K, then every column visit */
     for (int j = 0; j < n; j++) {
         int nt = 0;
         /* scatter the lower triangle of K(:,j) */
@@ -522,6 +560,7 @@ static SpChol *spchol_factor_nat(int n, const int *Kp, const int *Ki, const doub
         }
         double dj = w[j];
         if (!(dj > 1e-300)) {   /* not positive definite */
+            work_add(ops);
             for (int q = 0; q < n; q++) { free(ci[q]); free(cv[q]); free(ri[q]); free(rv[q]); }
             free(ci); free(cv); free(cn); free(cc);
             free(ri); free(rv); free(rn); free(rc);
@@ -572,7 +611,9 @@ static SpChol *spchol_factor_nat(int n, const int *Kp, const int *Ki, const doub
             ri[i][rn[i]] = j; rv[i][rn[i]] = v; rn[i]++;
         }
         w[j] = 0.0;
+        ops += (double)cn[j] * cn[j];   /* column j is visited once per row it touches */
     }
+    work_add(ops);
 
     /* pack into CSC */
     SpChol *L = (SpChol *)malloc(sizeof(SpChol));
@@ -622,6 +663,7 @@ static SpChol *spchol_factor_nat(int n, const int *Kp, const int *Ki, const doub
 static int spchol_solve_nat(const SpChol *L, double *rhs) {
     if (!L || !rhs) return -1;
     int n = L->n;
+    work_add(2.0 * L->Lp[n]);
     /* forward: L v = rhs (ascending columns) */
     for (int k = 0; k < n; k++) {
         int p0 = L->Lp[k], p1 = L->Lp[k + 1];
@@ -681,6 +723,7 @@ SpChol *spchol_factor_dense(int n, const double *Kd) {
         for (int i = j; i < n; i++) { L->Li[p] = i; L->Lx[p] = 0.0; p++; }
     }
     L->Lp[n] = p;
+    work_add((double)n * (n - 1) * (n + 1) / 6.0 + 0.5 * n * n);   /* the left-looking updates and the scalings */
     for (int j = 0; j < n; j++) {
         for (int i = j; i < n; i++) w[i - j] = Kd[(size_t)i * n + j];
         for (int k = 0; k < j; k++) {
@@ -709,6 +752,7 @@ int spchol_solve_all(const SpChol *L, double *B, int nrhs) {
     int n = L->n;
     double *acc = (double *)calloc((size_t)nrhs, sizeof(double));
     if (!acc) return -1;
+    work_add(2.0 * L->Lp[n] * nrhs);
     for (int k = 0; k < n; k++) {
         int p0 = L->Lp[k], p1 = L->Lp[k + 1];
         double lkk = 0.0;
@@ -879,10 +923,14 @@ static int *sym_amd(int n, const int *Ap, const int *Ai) {
         return NULL;
     }
     int ok = 1;
+    /* The work is the set insertions' duplicate scans: each amd_add walks the
+     * list it inserts into, so every insertion costs the two current degrees. */
+    double ops = 0.0;
     for (int j = 0; j < n && ok; j++)
         for (int p = Ap[j]; p < Ap[j + 1] && ok; p++) {
             int i = Ai[p];
             if (i == j || i < 0 || i >= n) continue;
+            ops += (double)deg[i] + deg[j];
             if (amd_add(&adj[i], &deg[i], &cap[i], j) || amd_add(&adj[j], &deg[j], &cap[j], i)) ok = 0;
         }
     int sst = 0;
@@ -891,18 +939,23 @@ static int *sym_amd(int n, const int *Ap, const int *Ai) {
         for (int i = 0; i < n; i++) if (!rem[i] && (v < 0 || deg[i] < deg[v])) v = i;
         if (v < 0) { ok = 0; break; }
         perm[step] = v; rem[v] = 1;
+        ops += (double)n + deg[v];   /* the minimum search and the neighbour gather */
         int nn = 0;
         for (int q = 0; q < deg[v]; q++) { int u = adj[v][q]; if (!rem[u]) nbr[nn++] = u; }
         for (int a = 0; a < nn; a++) { int u = nbr[a];   /* detach v */
+            ops += deg[u];
             for (int q = 0; q < deg[u]; q++) if (adj[u][q] == v) { adj[u][q] = adj[u][deg[u] - 1]; deg[u]--; break; } }
         for (int a = 0; a < nn && ok; a++) { int u = nbr[a];   /* fill: neighbourhood -> clique */
             sst++;
+            ops += deg[u];
             for (int q = 0; q < deg[u]; q++) seen[adj[u][q]] = sst;
             for (int b = 0; b < nn; b++) { int w = nbr[b];
                 if (w == u || seen[w] == sst) continue;
+                ops += (double)deg[u] + deg[w];
                 if (amd_add(&adj[u], &deg[u], &cap[u], w) || amd_add(&adj[w], &deg[w], &cap[w], u)) { ok = 0; break; } }
         }
     }
+    work_add(ops);
     for (int i = 0; i < n; i++) free(adj[i]);
     free(adj); free(deg); free(cap); free(rem); free(seen); free(nbr);
     if (!ok) { free(perm); return NULL; }
@@ -1012,10 +1065,13 @@ SpluFact *splu_factor_ord(int n, const int *Ap, const int *Ai, const double *Ax,
     if (!F->perm || !w || !wst || !touch) { free(w);free(wst);free(touch); for(int i=0;i<n;i++){free(rows[i].ci);free(rows[i].cv);} free(rows); splu_free(F); return NULL; }
     for (int i = 0; i < n; i++) F->perm[i] = i;
     int stamp = 0, singular = 0;
+    /* The work is the pivot search's scan of every remaining row, then each
+     * row update's pass over the two rows it combines. */
+    double ops = 0.0;
     for (int k = 0; k < n; k++) {
         int pk = srow_get(&rows[k], k);
         int p = k; double best = pk >= 0 ? fabs(rows[k].cv[pk]) : 0.0;
-        for (int i = k + 1; i < n; i++) { int q = srow_get(&rows[i], k); double v = q >= 0 ? fabs(rows[i].cv[q]) : 0.0; if (v > best) { best = v; p = i; } }
+        for (int i = k + 1; i < n; i++) { ops += rows[i].nz; int q = srow_get(&rows[i], k); double v = q >= 0 ? fabs(rows[i].cv[q]) : 0.0; if (v > best) { best = v; p = i; } }
         if (best < 1e-300) { singular = 1; break; }
         if (p != k) { SRow tr = rows[k]; rows[k] = rows[p]; rows[p] = tr; int tp = F->perm[k]; F->perm[k] = F->perm[p]; F->perm[p] = tp; }
         int qk = srow_get(&rows[k], k);
@@ -1026,6 +1082,7 @@ SpluFact *splu_factor_ord(int n, const int *Ap, const int *Ai, const double *Ax,
             double aik = rows[i].cv[qi];
             if (aik == 0.0) { continue; }
             double mult = aik / piv;
+            ops += 2.0 * rows[i].nz + rows[k].nz;
             rows[i].cv[qi] = mult;                 /* store L[i][k] in place */
             /* rows[i](cols>k) -= mult * rows[k](cols>k), with fill via marker */
             stamp++;
@@ -1058,6 +1115,7 @@ SpluFact *splu_factor_ord(int n, const int *Ap, const int *Ai, const double *Ax,
         }
         if (singular) break;
     }
+    work_add(ops);
     free(w); free(wst); free(touch);
     if (singular) {
         for (int i = 0; i < n; i++) { free(rows[i].ci); free(rows[i].cv); }
@@ -1114,6 +1172,7 @@ int splu_solve(const SpluFact *F, double *rhs) {
     int n = F->n;
     double *pb = (double *)malloc((size_t)(n > 0 ? n : 1) * sizeof(double));
     if (!pb) return -1;
+    work_add((double)F->Lp[n] + F->Up[n] + 2.0 * n);
     for (int k = 0; k < n; k++) pb[k] = rhs[F->perm[k]];
     /* forward: L y = pb (L unit-lower, CSC) */
     for (int j = 0; j < n; j++) {

@@ -131,6 +131,7 @@ static void sym_fun(int d, const double *A, int kind, double *R) {
     if (!ev || !V || !Ac) { free(ev); free(V); free(Ac); return; }
     memcpy(Ac, A, sizeof(double) * (size_t)d * d);
     dmat_eig_jacobi(d, Ac, ev, V);
+    work_add((double)d * d * d);   /* the spectral reconstruction */
     for (int i = 0; i < d; i++) for (int j = 0; j < d; j++) {
         double s = 0.0;
         for (int k = 0; k < d; k++) {
@@ -148,6 +149,7 @@ static void sym_fun(int d, const double *A, int kind, double *R) {
  * PSD block per Newton pass to build W = X#S and its inverses, where a block is
  * a few dozen across at most. */
 static void mmul(int d, const double *A, const double *B, double *C) {
+    work_add((double)d * d * d);
     for (int i = 0; i < d; i++) for (int j = 0; j < d; j++) { double s = 0.0; for (int k = 0; k < d; k++) s += A[i * d + k] * B[k * d + j]; C[i * d + j] = s; }
 }
 /* Smallest eigenvalue of a symmetric matrix -- the cone margin of a PSD block.
@@ -166,15 +168,18 @@ static double min_eig(int d, const double *A) {
     for (int i = 0; i < d * d; i++) fnorm2 += A[i] * A[i];
     /* An overflowing squared norm must not make every iterate look converged. */
     double tol = isfinite(fnorm2) ? 1e-28 * fnorm2 : 1e-30;
+    double ops = 0.0;
     for (int sweep = 0; sweep < 100; sweep++) {
         double off = 0.0;
         for (int p = 0; p < d; p++)
             for (int q = p + 1; q < d; q++) off += W[p * d + q] * W[p * d + q];
+        ops += 0.5 * (double)d * d;
         if (off <= tol) break;
         for (int p = 0; p < d; p++)
             for (int q = p + 1; q < d; q++) {
                 double apq = W[p * d + q];
                 if (fabs(apq) < 1e-32) continue;
+                ops += 4.0 * d;   /* two rotations of d pairs */
                 double theta = (W[q * d + q] - W[p * d + p]) / (2.0 * apq);
                 double t = (theta >= 0.0 ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
                 double c = 1.0 / sqrt(t * t + 1.0), sn = t * c;
@@ -190,6 +195,7 @@ static double min_eig(int d, const double *A) {
                 }
             }
     }
+    work_add(ops);
     double lo = W[0];
     for (int k = 1; k < d; k++) if (W[k * d + k] < lo) lo = W[k * d + k];
     free(W); free(ev); return lo;
@@ -279,6 +285,12 @@ static ipmres ipm_resid(const ipmc *P) {
     double *xs = P->xs, *ss = P->ss, *y = P->y, *t1 = P->scr;
     double *rp = P->rp, *rdx = P->rdx, *ez = P->ez, *es = P->es;
     ipmres R; double mu = 0.0, pf = 0.0, df = 0.0;
+    {   /* the row and dual residuals touch every block once per row */
+        double blk = 0.0;
+        for (int j = 0; j < nb; j++) blk += (double)dims[j] * dims[j];
+        for (int i = 0; i < nsoc; i++) blk += socdims[i];
+        work_add(2.0 * m * (n + blk + Ke));
+    }
     for (int k = 0; k < m; k++) {
         double t = -b[k];
         for (int i = 0; i < n; i++) t += A[k * n + i] * xs[i];
@@ -475,10 +487,12 @@ static int sdp_aug_direction(int m,int n,int nb,const int *dims,size_t d2,
  }
  for(int i=0;i<N;i++){double mx=0;for(int j=0;j<N;j++)if(fabs(K[(size_t)i*N+j])>mx)mx=fabs(K[(size_t)i*N+j]);double rs=mx>0?1/mx:1;r[i]*=rs;for(int j=0;j<N;j++)K[(size_t)i*N+j]*=rs;}
  for(int j=0;j<N;j++){double mx=0;for(int i=0;i<N;i++)if(fabs(K[(size_t)i*N+j])>mx)mx=fabs(K[(size_t)i*N+j]);cs[j]=mx>0?1/mx:1;for(int i=0;i<N;i++)K[(size_t)i*N+j]*=cs[j];}
+ work_add(4.0*(double)N*N);   /* assembly and equilibration */
  memcpy(org,r,(size_t)N*sizeof(double));LuFact *lf=dmat_lu_factor(K,N);int ok=lf!=NULL;
  if(ok){dmat_lu_solve_comp(lf,r);
   for(int it=0;it<3;it++){
    double before=0,after=0;
+   work_add(4.0*(double)N*N);   /* two compensated residual sweeps */
    for(int i=0;i<N;i++){cor[i]=org[i]-nsum_prod(K+(size_t)i*N,r,N);if(fabs(cor[i])>before)before=fabs(cor[i]);}
    dmat_lu_solve_comp(lf,cor);for(int i=0;i<N;i++)r[i]+=cor[i];
    for(int i=0;i<N;i++){double e=fabs(org[i]-nsum_prod(K+(size_t)i*N,r,N));if(e>after)after=e;}
@@ -1089,6 +1103,10 @@ static int sdp_ipm_run(int secant, int m, int n, const double *A, const double *
     size_t tsz = dmax2 > (size_t)kmax ? dmax2 : (size_t)kmax;
     int K = 0; for (int i = 0; i < nsoc; i++) K += socdims[i];
     int Ke = 3 * nep;
+    /* block sizes of the per-row work: sum of d^2 over PSD blocks, of k^2 over SOC */
+    double sd2 = 0.0, sk2 = 0.0;
+    for (int j = 0; j < nb; j++) sd2 += (double)dims[j] * dims[j];
+    for (int i = 0; i < nsoc; i++) sk2 += (double)socdims[i] * socdims[i];
     int *soff = (int *)malloc((size_t)(nsoc > 0 ? nsoc + 1 : 1) * sizeof(int));
     if (!soff) return 2;
     soff[0] = 0; for (int i = 0; i < nsoc; i++) soff[i + 1] = soff[i] + socdims[i];
@@ -1382,6 +1400,8 @@ static int sdp_ipm_run(int secant, int m, int n, const double *A, const double *
                     Sys[(size_t)r * Nsys + r] = -ss[i] / xs[i];
                     Srhs[r] = -((-ss[i] + sigma * mu / xs[i]) + rdx[i]);
                 }
+                /* the Schur rows: the scalar block, the PSD blocks through Mt, the SOC arrows */
+                work_add((double)m * m * ((augx ? 0.0 : (double)n) + 2.0 * sd2) + (double)m * sk2);
                 for (int k = 0; k < m; k++) {
                     double rk = -rp[k];
                     if (!augx) for (int i = 0; i < n; i++) { double th = xs[i] / ss[i];
@@ -1482,6 +1502,7 @@ static int sdp_ipm_run(int secant, int m, int n, const double *A, const double *
                 if (!rr || !cc) { free(rr); free(cc); free(Sys); free(Srhs); status = 2; goto done; }
                 for (int i = 0; i < Nsys; i++) { rr[i] = 1.0; cc[i] = 1.0; }
                 if (nep > 0 || nb > 0) {
+                    work_add(4.0 * (double)Nsys * Nsys);   /* row and column equilibration */
                     for (int i = 0; i < Nsys; i++) {
                         double mx = 0.0;
                         for (int j = 0; j < Nsys; j++) { double a = fabs(Sys[(size_t)i * Nsys + j]); if (a > mx) mx = a; }
@@ -1526,6 +1547,7 @@ static int sdp_ipm_run(int secant, int m, int n, const double *A, const double *
                 if (nep == 0) dmat_lu_solve_comp(f, Srhs); else dmat_lu_solve(f, Srhs);
                 for (int rif = 0; rif < 3 && refine_on; rif++) {
                     double rn = 0.0, rn2 = 0.0;
+                    work_add(4.0 * (double)Nsys * Nsys);   /* two compensated residual sweeps */
                     for (int a = 0; a < Nsys; a++) { const double *row = Sys + (size_t)a * Nsys;
                         double t = nsum_prod(row, Srhs, Nsys);
                         rcor[a] = gsc[a] - t; if (fabs(rcor[a]) > rn) rn = fabs(rcor[a]); }
@@ -1548,6 +1570,7 @@ static int sdp_ipm_run(int secant, int m, int n, const double *A, const double *
                 free(Sys); free(Srhs);
             }
             /* dz */
+            work_add(2.0 * m * n + 2.0 * m * sd2 + 2.0 * m * K);   /* dx, ds and the block right-hand sides */
             if (!aug_dx) for (int i = 0; i < n; i++) { double e = rdx[i]; for (int k = 0; k < m; k++) e += A[k * n + i] * dy[k]; e += (-ss[i] + sigma * mu / xs[i]); dx[i] = (xs[i] / ss[i]) * e; }
             for (int j = 0; j < nb; j++) { int d = dims[j]; double *e = t1;
                 for (int a = 0; a < d * d; a++) e[a] = 0.0;

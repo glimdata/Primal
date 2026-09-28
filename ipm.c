@@ -132,6 +132,7 @@ static LuFact *build_factor(const double *A, const double *Q, const double *D,
             }
         }
     for (int i = 0; i < m; i++) K[(n + i) * N + n + i] = -delta;
+    work_add((double)N * N);   /* assembling K */
     LuFact *f = dmat_lu_factor(K, N);
     free(K);
     return f;
@@ -254,6 +255,7 @@ int ipm_solve_std(const double *A, const double *Q, int m, int n,
     for (it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(90);
         if (ipm_past_deadline()) { status = IPM_MAXITER; break; }
+        work_add(4.0 * m * n + (Q ? (double)n * n : 0.0));   /* residuals, right-hand sides, step recovery */
         /* residuals and measures */
         for (int i = 0; i < m; i++) {
             double s = -b[i];
@@ -431,11 +433,13 @@ static SpChol *factor_K(const int *Aptr, const int *Arow, const double *Aval,
                         const double *theta, int m, int n, double delta,
                         double *Kd, int *Kp, int *kcap, int **Ki, double **Kx) {
     memset(Kd, 0, (size_t)m * (size_t)m * sizeof(double));
+    double ops = 2.0 * m * m;   /* clearing, scanning and packing the dense K */
     for (int j = 0; j < n; j++) {
         double th = theta[j];
         for (int p = Aptr[j]; p < Aptr[j + 1]; p++) {
             int i1 = Arow[p];
             double v1 = Aval[p] * th;
+            ops += (double)(Aptr[j + 1] - p);
             for (int p2 = p; p2 < Aptr[j + 1]; p2++) {
                 int i2 = Arow[p2];
                 double prod = v1 * Aval[p2];
@@ -466,6 +470,7 @@ static SpChol *factor_K(const int *Aptr, const int *Arow, const double *Aval,
             if (v != 0.0) { (*Ki)[w] = i1; (*Kx)[w] = v; w++; }
         }
     }
+    work_add(ops);
     return spchol_factor_ord(m, Kp, *Ki, *Kx);
 }
 
@@ -652,6 +657,7 @@ int ipm_solve_std_csc(const int *Aptr, const int *Arow, const double *Aval,
     for (it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(90);
         if (ipm_past_deadline()) { status = IPM_MAXITER; break; }
+        work_add(8.0 * Aptr[n]);   /* the products with A and A' of the residuals, predictor and corrector */
         /* residuals */
         for (int i = 0; i < m; i++) rp[i] = -b[i];
         for (int i = 0; i < m; i++)
@@ -810,6 +816,7 @@ static SpChol *spchol_from_dense(const double *Kd, int m,
     /* Count the lower triangle first: a full one needs no fill-reducing order
      * and no sparse machinery, just the dense factor. */
     {
+        work_add(2.0 * m * m);   /* scanning the dense K twice */
         long long full = (long long)m * (m + 1) / 2, cnt = 0;
         for (int j = 0; j < m; j++) {
             cnt++;
@@ -1018,6 +1025,8 @@ int ipm_solve_qp_csc(const int *Aptr, const int *Arow, const double *Aval,
     for (it = 0; it < max_iter; it++) {
         if (primal_cb_iter_on) primal_cb_iter(90);
         if (ipm_past_deadline()) { status = IPM_MAXITER; break; }
+        /* K = A W, W dy twice, and the products with A, A' and Q */
+        work_add((double)nnzA * m + 3.0 * n * m + (double)m * m + 8.0 * nnzA + 4.0 * nnzQ);
         /* residuals */
         for (int i = 0; i < m; i++) rp[i] = -b[i];
         for (int i = 0; i < m; i++)

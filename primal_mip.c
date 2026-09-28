@@ -1006,6 +1006,7 @@ void *probe_worker(void *arg) {
     double *pux = (double *)malloc((size_t)(nvar > 0 ? nvar : 1) * sizeof(double));
     double *pout = (double *)malloc((size_t)(nvar > 0 ? nvar : 1) * sizeof(double));
     if (!plx || !pux || !pout) { free(plx); free(pux); free(pout); return NULL; }
+    double work = 0.0, *prev = work_open(&work);
     for (int k = jb->start; k < jb->end; k++) {
         int v = jb->bins[k];
         jb->fix[k] = -1;
@@ -1019,6 +1020,7 @@ void *probe_worker(void *arg) {
         if (st0 == 1 && st1 == 0) jb->fix[k] = 1;
         else if (st1 == 1 && st0 == 0) jb->fix[k] = 0;
     }
+    work_end(jb->t, prev, work);
     free(plx); free(pux); free(pout);
     return NULL;
 }
@@ -1033,6 +1035,7 @@ void *sb_worker(void *arg) {
     double *flux = (double *)malloc((size_t)(nvar > 0 ? nvar : 1) * sizeof(double));
     double *xo = (double *)malloc((size_t)(nvar > 0 ? nvar : 1) * sizeof(double));
     if (!flx || !flux || !xo) { free(flx); free(flux); free(xo); return NULL; }
+    double work = 0.0, *prev = work_open(&work);
     for (int k = jb->start; k < jb->end; k++) {
         int j = jb->cand[k]; double v = jb->x[j];
         double zl = 0.0, zr = 0.0;
@@ -1052,6 +1055,7 @@ void *sb_worker(void *arg) {
         else score = -INF;
         jb->score[k] = score;
     }
+    work_end(jb->trelax, prev, work);
     free(flx); free(flux); free(xo);
     return NULL;
 }
@@ -1062,7 +1066,9 @@ void *sb_worker(void *arg) {
  * (the two children partition the root region). */
 void *mip_kid_run(void *arg) {
     MipKidJob *jb = (MipKidJob *)arg;
+    double work = 0.0, *prev = work_open(&work);
     jb->rc = optimize_mip(jb->t, jb->s);
+    work_end(jb->t, prev, work);
     return NULL;
 }
 

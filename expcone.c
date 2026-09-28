@@ -22,10 +22,17 @@
 #include "expcone.h"
 #include "linalg.h"
 
+/* An evaluation costs two transcendental functions (15 operations each in the
+ * work ledger) plus the rational terms of the gradient and of the Hessian. */
+static void expcone_count(const double *g, const double *H) {
+    work_add(30.0 + (g ? 10.0 : 0.0) + (H ? 40.0 : 0.0));
+}
+
 /* PEXP: t >= u e^{v/u}, u > 0.  f = -log(G) - log(u), G = t - u e^{v/u}. */
 static int pexp_core(const double *x, double *f, double *g, double *H) {
     double t = x[0], u = x[1], v = x[2];
     if (!(u > 0.0)) return -1;
+    expcone_count(g, H);
     double w = v / u, ew = exp(w);
     double G = t - u * ew;
     if (!(G > 0.0)) return -1;
@@ -57,6 +64,7 @@ static int pexp_core(const double *x, double *f, double *g, double *H) {
 static int ppow_core(const double *x, double alpha, double rot, double *f, double *g, double *H) {
     double t = x[0], u = x[1], v = x[2];
     if (!(t > 0.0) || !(u > 0.0) || !(alpha > 0.0) || !(alpha < 1.0)) return -1;
+    expcone_count(g, H);
     double p = pow(t, 2.0 * alpha) * pow(u, 2.0 * (1.0 - alpha));
     double D = rot * p - v * v;
     if (!(D > 0.0)) return -1;

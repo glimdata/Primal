@@ -235,6 +235,10 @@ struct PRIMAL_task_s {
      * the branch-and-bound's nodes, relaxations and branches. */
     int intpnt_iter, sim_primal_iter, sim_dual_iter;
     int mio_relax, mio_nodes, mio_branch;
+    /* Operations the kernels counted during the last optimize (getdouinf
+     * OPTIMIZER_TICKS reports them in millions), summed over every thread that
+     * worked for the task. */
+    double work;
     double *x, *y, *slc, *suc, *slx, *sux;
     double *snx;          /* s_n^x: conic multipliers per variable (storage) */
     double *xc;           /* x^c: row activity, if set by hand */
@@ -363,6 +367,13 @@ void iter_cb_end(void);
 /* Adds n to a work counter of the last optimize; safe from the threads that
  * share a task. */
 void count_add(int *slot, int n);
+/* Adds v to the work counter of the last optimize, under the same lock. */
+void count_addd(double *slot, double v);
+/* Closes the work ledger a thread opened with work_open (restoring prev) and
+ * adds what it counted to the task the thread worked for. */
+void work_end(PRIMALtask_t t, double *prev, double work);
+/* One optimizer tick is this many counted operations. */
+#define WORK_OPS_PER_TICK 1e6
 /* Adds every counter of a clone (NULL allowed) into the task it worked for. */
 void count_fold(PRIMALtask_t dst, const PRIMALtask_t src);
 /* Grows a lazily-sized table to at least need elements, updating *cap. */
