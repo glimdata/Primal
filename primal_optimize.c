@@ -50,6 +50,7 @@ PRIMALrescodee opt_routes(PRIMALtask_t t) {
                 cb_fire(t, PRIMAL_CALLBACK_BEGIN_MIO);
                 PRIMALrescodee rm = optimize_mip(t, s);
                 cb_fire(t, PRIMAL_CALLBACK_END_MIO);
+                t->engine = PRIMAL_ENGINE_MIXED_INT;
                 return rm;
             }
     }
@@ -79,6 +80,7 @@ PRIMALrescodee opt_routes(PRIMALtask_t t) {
             PRIMALrescodee rc2 = optimize_sdp(t, s);  /* fallback: tangent-cut outer approximation */
             if (rc2 == PRIMAL_RES_OK || !nat_ok) return rc2;
             t->solsta = PRIMAL_SOL_STA_OPTIMAL;
+            t->engine = PRIMAL_ENGINE_CONIC_NATIVE;
             return PRIMAL_RES_OK;
         }
         /* combined bar + cones: fall through to the conic path */
@@ -143,6 +145,7 @@ PRIMALrescodee opt_routes(PRIMALtask_t t) {
             /* the cuts give no answer: deliver the native route's near-optimal
              * candidate, already published (has_sol). */
             t->solsta = PRIMAL_SOL_STA_OPTIMAL;
+            t->engine = PRIMAL_ENGINE_CONIC_NATIVE;
             return PRIMAL_RES_OK;
         }
         return rcon;
@@ -343,7 +346,8 @@ PRIMALrescodee opt_routes(PRIMALtask_t t) {
         } else if (xred && yred && zred) {
             status = solve_std_routed(As_ptr, As_row, As_val, Qs_ptr, Qs_row, Qs_val,
                                      msolve, nsolve, bsolve, csolve, t,
-                                     xred, yred, zred, NULL, NULL, method, own_y, own_x);
+                                     xred, yred, zred, NULL, NULL, method, own_y, own_x,
+                                     &t->engine);
             if (status == STD_OPT) presolve_postsolve(pre, xred, yred, xt, ystd);
         } else {
             status = STD_MEMORY;                            /* out of memory */
@@ -360,11 +364,11 @@ PRIMALrescodee opt_routes(PRIMALtask_t t) {
         if (t->num_threads > 1 && (method == 0 || method == 1))
             status = solve_std_conc(sf->Aptr, sf->Arow, sf->Aval, sf->Qptr, sf->Qrow, sf->Qval,
                                     sf->m, sf->n, sf->b, sf->c, t,
-                                    xt, ystd, zst, x0, y0, own_y, own_x);
+                                    xt, ystd, zst, x0, y0, own_y, own_x, &t->engine);
         else
             status = solve_std_routed(sf->Aptr, sf->Arow, sf->Aval, sf->Qptr, sf->Qrow, sf->Qval,
                                       sf->m, sf->n, sf->b, sf->c, t,
-                                      xt, ystd, zst, x0, y0, method, own_y, own_x);
+                                      xt, ystd, zst, x0, y0, method, own_y, own_x, &t->engine);
         if (status != STD_OPT && status != STD_MEMORY) {
             const double *cy = ray_candidate(own_y, ystd, sf->m);
             const double *cx = ray_candidate(own_x, xt, sf->n);

@@ -558,6 +558,10 @@ static PRIMALrescodee optimize_conic_impl(PRIMALtask_t t, int s) {
              * For a single large cone M is dense-ish (sparse ~= dense); the win
              * is for many-small-cone / sparse E,G structures. */
             int sparse_conic = (Nsys >= 800) || (getenv("GMB_SOCP_SPARSE") != NULL);
+            /* with exp/power cones or bars each round solves a master of the
+             * outer approximation; without them round 0 is the whole answer */
+            t->engine = (nNlin > 0 || nb > 0) ? PRIMAL_ENGINE_TANGENT_CUTS
+                      : sparse_conic ? PRIMAL_ENGINE_CONIC_SPARSE : PRIMAL_ENGINE_CONIC_DENSE;
             int st = sparse_conic
                 ? socp_solve_sparse(ntot, neq, E, d, c, ncones_solver, cones, G, h,
                                     t->tol_co_gap, tol_out, iter_cap(t->max_iter_intpnt), xs, ys, lm)

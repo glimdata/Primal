@@ -693,8 +693,26 @@ typedef enum {
     PRIMAL_IINF_SOL_ITR_PROSTA = 134,
     PRIMAL_IINF_SOL_ITR_SOLSTA = 135,
     PRIMAL_IINF_STO_NUM_A_REALLOC = 136,
-    PRIMAL_IINF_END = 137
+    /* This solver's own item, after the reference's range: the engine whose
+     * result the last optimize reports, a PRIMALenginee value. */
+    PRIMAL_IINF_OPTIMIZE_ENGINE = 137,
+    PRIMAL_IINF_END = 138
 } PRIMALiinfiteme;
+
+/* Values of PRIMAL_IINF_OPTIMIZE_ENGINE. */
+typedef enum {
+    PRIMAL_ENGINE_NONE            = 0,   /* no engine ran: not optimized, presolve answered, model refused */
+    PRIMAL_ENGINE_SIMPLEX_TABLEAU = 1,   /* primal simplex on the dense tableau (phases 1 and 2) */
+    PRIMAL_ENGINE_SIMPLEX_REVISED = 2,   /* revised primal simplex from the crash basis */
+    PRIMAL_ENGINE_DUAL_SIMPLEX    = 3,   /* dual simplex from the crash basis */
+    PRIMAL_ENGINE_INTPNT_DENSE    = 4,   /* LP/QP interior point on the dense augmented system */
+    PRIMAL_ENGINE_INTPNT_SPARSE   = 5,   /* LP/QP interior point on sparse normal equations */
+    PRIMAL_ENGINE_CONIC_DENSE     = 6,   /* SOCP interior point with a dense LU */
+    PRIMAL_ENGINE_CONIC_SPARSE    = 7,   /* SOCP interior point with a sparse factorization */
+    PRIMAL_ENGINE_CONIC_NATIVE    = 8,   /* unified conic interior point: PSD, exp/power and SOC blocks */
+    PRIMAL_ENGINE_TANGENT_CUTS    = 9,   /* outer approximation by tangent cuts */
+    PRIMAL_ENGINE_MIXED_INT       = 10   /* branch and bound */
+} PRIMALenginee;
 
 typedef enum {
     PRIMAL_LIINF_ANA_PRO_SCALARIZED_CONSTRAINT_MATRIX_NUM_COLUMNS = 0,

@@ -11383,7 +11383,7 @@ static void test_t160(void) {
     check_rc(PRIMAL_getinfmax(t, PRIMAL_INF_DOU_TYPE, &mx), PRIMAL_RES_OK, "infmax DOU");
     check(mx == 116, "DOU 0..115");
     PRIMAL_getinfmax(t, PRIMAL_INF_INT_TYPE, &mx);
-    check(mx == 137, "INT 0..136");
+    check(mx == 138, "INT 0..137");
     PRIMAL_getinfmax(t, PRIMAL_INF_LINT_TYPE, &mx);
     check(mx == 22, "LINT 0..21");
     check_rc(PRIMAL_getinfmax(t, (PRIMALinftypee)7, &mx), PRIMAL_RES_ERR_ARG, "unknown type");
@@ -11435,7 +11435,7 @@ static void test_t160(void) {
     PRIMAL_getintinf(t, PRIMAL_IINF_ANA_PRO_NUM_VAR_UP, &iv); check(iv == 0, "zero UP");
     PRIMAL_getintinf(t, PRIMAL_IINF_ANA_PRO_NUM_CON_EQ, &iv); check(iv == 1, "row FX = EQ");
     PRIMAL_getintinf(t, PRIMAL_IINF_ANA_PRO_NUM_VAR_CONT, &iv); check(iv == 3, "all continuous");
-    check_rc(PRIMAL_getintinf(t, (PRIMALiinfiteme)137, &iv), PRIMAL_RES_ERR_ARG, "IINF out of range");
+    check_rc(PRIMAL_getintinf(t, (PRIMALiinfiteme)138, &iv), PRIMAL_RES_ERR_ARG, "IINF out of range");
     PRIMALint64t lv = -1;
     check_rc(PRIMAL_getlintinf(t, PRIMAL_LIINF_RD_NUMANZ, &lv), PRIMAL_RES_OK, "RD_NUMANZ");
     check(lv == 3, "three nonzeros in A");
@@ -11498,7 +11498,7 @@ static void test_t160(void) {
     check_rc(PRIMAL_liinfitemtostr(PRIMAL_LIINF_RD_NUMANZ, ib), PRIMAL_RES_OK, "liinfitemtostr");
     check(strcmp(ib, "MSK_LIINF_RD_NUMANZ") == 0, "LIINF name");
     check_rc(PRIMAL_dinfitemtostr((PRIMALdinfiteme)116, ib), PRIMAL_RES_ERR_ARG, "DINF out of range");
-    check_rc(PRIMAL_iinfitemtostr((PRIMALiinfiteme)137, ib), PRIMAL_RES_ERR_ARG, "IINF out of range");
+    check_rc(PRIMAL_iinfitemtostr((PRIMALiinfiteme)138, ib), PRIMAL_RES_ERR_ARG, "IINF out of range");
     check_rc(PRIMAL_liinfitemtostr((PRIMALliinfiteme)22, ib), PRIMAL_RES_ERR_ARG, "LIINF out of range");
     check_rc(PRIMAL_callbackcodetostr(PRIMAL_CALLBACK_BEGIN_OPTIMIZER, ib), PRIMAL_RES_OK,
              "callbackcodetostr");
@@ -20023,10 +20023,68 @@ static void test_t273(void) {
     pend(&p);
 }
 
+/* T274: getintinf(OPTIMIZE_ENGINE) names the engine that answered the last
+ * optimize. On one small LP every IPAR_OPTIMIZER value reports the method it
+ * selects (DUAL_SIMPLEX runs the primal simplex, a documented deviation; a
+ * problem this small stays on the dense interior point), each solve reporting
+ * its own; a pure SOCP this small reports the dense conic backend. */
+static int t274_engine(PRIMALtask_t t) {
+    int e = -1;
+    check_rc(PRIMAL_getintinf(t, PRIMAL_IINF_OPTIMIZE_ENGINE, &e), PRIMAL_RES_OK,
+             "T274 getintinf OPTIMIZE_ENGINE");
+    return e;
+}
+static void test_t274(void) {
+    cur_name = "T274 getintinf: the engine that answered";
+    P p; pbegin(&p);
+    PRIMALtask_t t = p.task;
+    /* min -3x - 2y  s.t.  x + y <= 4,  x, y >= 0 */
+    PRIMAL_appendvars(t, 2);
+    PRIMAL_appendcons(t, 1);
+    PRIMAL_putvarbound(t, 0, PRIMAL_BK_LO, 0.0, INFINITY);
+    PRIMAL_putvarbound(t, 1, PRIMAL_BK_LO, 0.0, INFINITY);
+    PRIMAL_putcj(t, 0, -3.0); PRIMAL_putcj(t, 1, -2.0);
+    PRIMAL_putarow(t, 0, 2, (int[]){0, 1}, (double[]){1.0, 1.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_UP, -INFINITY, 4.0);
+    check(t274_engine(t) == PRIMAL_ENGINE_NONE, "T274 an unsolved task reports no engine");
+    const int opt[4] = { PRIMAL_OPTIMIZER_INTPNT, PRIMAL_OPTIMIZER_FREE,
+                         PRIMAL_OPTIMIZER_PRIMAL_SIMPLEX, PRIMAL_OPTIMIZER_DUAL_SIMPLEX };
+    for (int k = 0; k < 4; k++) {
+        PRIMAL_putintparam(t, PRIMAL_IPAR_OPTIMIZER, opt[k]);
+        check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T274 LP optimize");
+        int e = t274_engine(t);
+        if (opt[k] == PRIMAL_OPTIMIZER_INTPNT)
+            check(e == PRIMAL_ENGINE_INTPNT_DENSE, "T274 INTPNT: the dense interior point answers");
+        else
+            check(e == PRIMAL_ENGINE_SIMPLEX_REVISED || e == PRIMAL_ENGINE_SIMPLEX_TABLEAU,
+                  "T274 FREE, PRIMAL_SIMPLEX, DUAL_SIMPLEX: a primal simplex answers");
+    }
+    pend(&p);
+
+    /* min t  s.t.  x1 + x2 = 10,  (t, x1, x2) in Q^3 */
+    pbegin(&p); t = p.task;
+    PRIMAL_appendvars(t, 3);
+    PRIMAL_appendcons(t, 1);
+    for (int j = 0; j < 3; j++) PRIMAL_putvarbound(t, j, PRIMAL_BK_FR, 0.0, 0.0);
+    PRIMAL_putcj(t, 0, 1.0);
+    PRIMAL_putarow(t, 0, 2, (int[]){1, 2}, (double[]){1.0, 1.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_FX, 10.0, 10.0);
+    PRIMAL_appendcone(t, PRIMAL_CT_QUAD, 0.0, 3, (int[]){0, 1, 2});
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T274 SOCP optimize");
+    check(t274_engine(t) == PRIMAL_ENGINE_CONIC_DENSE, "T274 SOCP: the dense conic backend answers");
+    pend(&p);
+
+    char nm[PRIMAL_MAX_INFNAME_LEN];
+    check_rc(PRIMAL_iinfitemtostr(PRIMAL_IINF_OPTIMIZE_ENGINE, nm), PRIMAL_RES_OK,
+             "T274 iinfitemtostr OPTIMIZE_ENGINE");
+    check(strcmp(nm, "PRIMAL_IINF_OPTIMIZE_ENGINE") == 0, "T274 the item's name");
+}
+
 /* Every test, in the order the suite runs them. The name is the id that labels
  * the test's checks, taken from the function name so the two cannot differ. */
 #define TEST(id) { "T" #id, test_t##id }
 static const struct { const char *name; void (*run)(void); } tests[] = {
+    TEST(274),
     TEST(273),
     TEST(272),
     TEST(271),

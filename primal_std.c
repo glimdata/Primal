@@ -322,35 +322,38 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
                             int m, int n, const double *b, const double *c,
                             PRIMALtask_t t, double *xt, double *ystd, double *zst,
                             const double *x0, const double *y0, int method,
-                            double *dray, double *pray);
+                            double *dray, double *pray, int *engine);
 /* Dispatch a standard-form solve through the given method, firing the
  * begin/end optimization callbacks around solve_std_routed_impl. Returns the
- * STD_* status of the chosen engine. */
+ * STD_* status of the chosen engine and names that engine in *engine. */
 int solve_std_routed(const int *Aptr, const int *Arow, const double *Aval,
                             const int *Qptr, const int *Qrow, const double *Qval,
                             int m, int n, const double *b, const double *c,
                             PRIMALtask_t t, double *xt, double *ystd, double *zst,
                             const double *x0, const double *y0, int method,
-                            double *dray, double *pray)
+                            double *dray, double *pray, int *engine)
 {
     int simplex = (method == 0 || method == 4);
+    int eng = PRIMAL_ENGINE_NONE;
     iter_cb_begin(t);
     cb_fire(t, simplex ? PRIMAL_CALLBACK_BEGIN_SIMPLEX : PRIMAL_CALLBACK_BEGIN_INTPNT);
     int st = solve_std_routed_impl(Aptr, Arow, Aval, Qptr, Qrow, Qval, m, n, b, c,
-                                   t, xt, ystd, zst, x0, y0, method, dray, pray);
+                                   t, xt, ystd, zst, x0, y0, method, dray, pray, &eng);
     cb_fire(t, simplex ? PRIMAL_CALLBACK_END_SIMPLEX : PRIMAL_CALLBACK_END_INTPNT);
     iter_cb_end();
+    if (engine) *engine = eng;
     return st;
 }
 /* Body of solve_std_routed: runs the engine named by method (0 tableau
  * simplex, 1 dense IPM, 2 sparse LP IPM, 3 sparse QP IPM, 4 dual simplex from
- * a crash basis) and returns its STD_* status. */
+ * a crash basis), writes the engine that produced the status to *engine and
+ * returns that status. */
 static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double *Aval,
                             const int *Qptr, const int *Qrow, const double *Qval,
                             int m, int n, const double *b, const double *c,
                             PRIMALtask_t t, double *xt, double *ystd, double *zst,
                             const double *x0, const double *y0, int method,
-                            double *dray, double *pray)
+                            double *dray, double *pray, int *engine)
 {
     int nit;
     if (method == 2) {
@@ -358,6 +361,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
                                    t->tol_gap, t->tol_pfeas, t->tol_dfeas,
                                    iter_cap(t->max_iter_intpnt), xt, ystd, zst, x0, y0, &nit);
         count_add(&t->intpnt_iter, nit);
+        *engine = PRIMAL_ENGINE_INTPNT_SPARSE;
         return std_status(st, method);
     }
     if (method == 3) {
@@ -370,6 +374,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
                                    t->tol_qo_gap, t->tol_qo_pfeas, t->tol_qo_dfeas,
                                    iter_cap(t->max_iter_intpnt), xt, ystd, zst, x0, y0, &nit);
             count_add(&t->intpnt_iter, nit);
+            *engine = PRIMAL_ENGINE_INTPNT_DENSE;
             free(dA); free(dQ);
             return std_status(st, method);
         }
@@ -377,6 +382,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
                                   t->tol_qo_gap, t->tol_qo_pfeas, t->tol_qo_dfeas,
                                   iter_cap(t->max_iter_intpnt), xt, ystd, zst, x0, y0, &nit);
         count_add(&t->intpnt_iter, nit);
+        *engine = PRIMAL_ENGINE_INTPNT_SPARSE;
         return std_status(st, method);
     }
     if (method == 1) {
@@ -394,6 +400,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
                             t->tol_gap, t->tol_pfeas, t->tol_dfeas,
                             iter_cap(t->max_iter_intpnt), xt, ystd, zst, x0, y0, &nit);
         count_add(&t->intpnt_iter, nit);
+        *engine = PRIMAL_ENGINE_INTPNT_DENSE;
         free(dA); free(dQ);
         return std_status(st, method);
     }
@@ -406,6 +413,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
             st = std_status(simplex_dual_solve_std(dA, m, n, b, c, bas,
                              iter_cap(t->max_iter_simplex), xt, NULL, ystd, &nit), method);
             count_add(&t->sim_dual_iter, nit);
+            *engine = PRIMAL_ENGINE_DUAL_SIMPLEX;
         }
         free(bas); free(dA);
         return st;
@@ -423,6 +431,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
             st = simplex_revised_solve_std(dA, m, n, b, c, bas,
                                            iter_cap(t->max_iter_simplex), xt, ystd, &nit);
             count_add(&t->sim_primal_iter, nit);
+            *engine = PRIMAL_ENGINE_SIMPLEX_REVISED;
             /* Only the optimum (0) is used by the revised: on a non-feasible
              * basis (1), unbounded (2, the revised does not compute the `pray`
              * ray), maxiter (3) or singular (4) one goes back to the tableau. */
@@ -433,6 +442,7 @@ static int solve_std_routed_impl(const int *Aptr, const int *Arow, const double 
     if (st != 0 && st != 2) {
         st = simplex_solve_std(dA, m, n, b, c, iter_cap(t->max_iter_simplex), xt, ystd, dray, pray, &nit);
         count_add(&t->sim_primal_iter, nit);
+        *engine = PRIMAL_ENGINE_SIMPLEX_TABLEAU;
     }
     free(dA);
     return std_status(st, method);
@@ -448,19 +458,21 @@ static void *conc_worker(void *arg) {
     double work = 0.0, *prev = work_open(&work);
     j->status = solve_std_routed(j->Aptr, j->Arow, j->Aval, j->Qptr, j->Qrow, j->Qval,
                                  j->m, j->n, j->b, j->c, j->t, j->xt, j->ystd, j->zst,
-                                 j->x0, j->y0, j->method, j->dray, j->pray);
+                                 j->x0, j->y0, j->method, j->dray, j->pray, &j->engine);
     work_end(j->t, prev, work);
     j->elapsed = (double)(clock() - t0) / (double)CLOCKS_PER_SEC;
     return NULL;
 }
 /* Run the four std engines (simplex, dense IPM, sparse LP IPM, dual simplex)
- * concurrently on the same standard form and keep the winner. Falls back to
- * the sequential simplex route if the worker buffers cannot be allocated. */
+ * concurrently on the same standard form and keep the winner, whose engine is
+ * written to *engine. Falls back to the sequential simplex route if the worker
+ * buffers cannot be allocated. */
 int solve_std_conc(const int *Aptr, const int *Arow, const double *Aval,
                           const int *Qptr, const int *Qrow, const double *Qval,
                           int m, int n, const double *b, const double *c, PRIMALtask_t t,
                           double *xt, double *ystd, double *zst,
-                          const double *x0, const double *y0, double *dray, double *pray)
+                          const double *x0, const double *y0, double *dray, double *pray,
+                          int *engine)
 {
     double *xt2 = (double *)calloc((size_t)(n > 0 ? n : 1), sizeof(double));
     double *ys2 = (double *)calloc((size_t)(m > 0 ? m : 1), sizeof(double));
@@ -483,13 +495,14 @@ int solve_std_conc(const int *Aptr, const int *Arow, const double *Aval,
         free(xt3); free(ys3); free(zs3); free(dr3); free(pr3);
         free(xt4); free(ys4); free(zs4); free(dr4); free(pr4);
         return solve_std_routed(Aptr, Arow, Aval, Qptr, Qrow, Qval, m, n, b, c, t,
-                                xt, ystd, zst, x0, y0, 0, dray, pray);
+                                xt, ystd, zst, x0, y0, 0, dray, pray, engine);
     }
     ConcJob j0, j1, j2, j3;
     j0.Aptr = Aptr; j0.Arow = Arow; j0.Aval = Aval; j0.Qptr = Qptr; j0.Qrow = Qrow; j0.Qval = Qval;
     j0.m = m; j0.n = n; j0.b = b; j0.c = c; j0.t = t;
     j0.xt = xt; j0.ystd = ystd; j0.zst = zst; j0.x0 = x0; j0.y0 = y0;
     j0.method = 0; j0.dray = dray; j0.pray = pray; j0.status = STD_MEMORY;
+    j0.engine = PRIMAL_ENGINE_NONE;
     j1 = j0; j1.xt = xt2; j1.ystd = ys2; j1.zst = zs2; j1.dray = dr2; j1.pray = pr2;
     j1.method = 1; j1.status = STD_MEMORY;
     /* Third strategy: sparse IPM (normal equations). For the LP it is a
@@ -544,6 +557,7 @@ int solve_std_conc(const int *Aptr, const int *Arow, const double *Aval,
             memcpy(pray, prv[pick], (size_t)n * sizeof(double));
         }
     }
+    if (engine) *engine = jv[pick < 0 ? 0 : pick]->engine;
     free(xt2); free(ys2); free(zs2); free(dr2); free(pr2);
     free(xt3); free(ys3); free(zs3); free(dr3); free(pr3);
     free(xt4); free(ys4); free(zs4); free(dr4); free(pr4);

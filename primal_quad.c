@@ -417,6 +417,7 @@ PRIMALrescodee optimize_quad(PRIMALtask_t t, int s) {
     } else {
         rcs = optimize_conic(sh, s);
     }
+    t->engine = sh->engine;
     /* map solution back: x, and y of the ORIGINAL rows only (aux equalities
      * and cones are an internal encoding) */
     if (rcs == PRIMAL_RES_OK && sh->has_sol) {

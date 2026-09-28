@@ -92,7 +92,9 @@ detail.
 ### Information items
 
 `getdouinf`, `getintinf` and `getlintinf` (and the `getna*inf` forms, by
-name) accept every information-item id of the reference. The measured ones:
+name) accept every information-item id of the reference, and `getintinf`
+one of this solver's own, `IINF_OPTIMIZE_ENGINE`, numbered after the
+reference's range and named `PRIMAL_IINF_OPTIMIZE_ENGINE`. The measured ones:
 
 | Item | Value |
 |---|---|
@@ -104,6 +106,7 @@ name) accept every information-item id of the reference. The measured ones:
 | `IINF_MIO_NUM_SOLVED_NODES`, `IINF_MIO_NUM_RELAX`, `IINF_MIO_NUM_BRANCH` | branch-and-bound nodes solved, relaxations solved, branchings |
 | `IINF_ANA_PRO_*`, `IINF_OPT_NUM*`, `IINF_RD_*`, `LIINF_RD_*` | model shape |
 | `IINF_OPTIMIZE_RESPONSE`, `IINF_SOL_*_PROSTA`, `IINF_SOL_*_SOLSTA` | last response code and statuses |
+| `IINF_OPTIMIZE_ENGINE` | the engine whose result the last `optimize` reports, a `PRIMAL_ENGINE_*` value |
 
 Every other id is accepted and answers 0. The iteration and node counters
 describe the last `optimize` call only and count every run of that optimizer
@@ -111,6 +114,24 @@ made on the task's behalf: the route itself, the node relaxations of
 branch-and-bound (probing and strong branching included), the LP masters of
 the cut loops and each engine of the concurrent optimizer. The conic interior
 point (SOCP, SDP, exponential and power cones) is not counted.
+
+The engine item names the one engine whose result the solve reports, not
+every engine that ran:
+
+| `PRIMAL_ENGINE_*` | reported when |
+|---|---|
+| `NONE` | no engine ran: the task was not optimized, presolve answered, or the model was refused |
+| `SIMPLEX_REVISED`, `SIMPLEX_TABLEAU` | the primal simplex answered: the revised method from the crash basis, or the tableau when the revised method does not reach an optimum (`OPTIMIZER_DUAL_SIMPLEX` takes this route too) |
+| `DUAL_SIMPLEX` | the dual simplex of the concurrent optimizer won |
+| `INTPNT_DENSE`, `INTPNT_SPARSE` | the linear/quadratic interior point answered, on the dense augmented system or on sparse normal equations |
+| `CONIC_DENSE`, `CONIC_SPARSE` | a model whose cones are all quadratic was answered by the conic interior point, with a dense or a sparse factorization of its KKT system |
+| `CONIC_NATIVE` | the unified conic interior point answered (PSD, exponential and power blocks, with any quadratic cones) |
+| `TANGENT_CUTS` | the outer approximation by tangent cuts answered |
+| `MIXED_INT` | branch and bound answered, whatever engine solved its nodes |
+
+With the concurrent optimizer it is the engine of the winning worker. A model
+with quadratic rows, or a quadratic objective together with cones, is solved
+through its conic encoding, and the item names the engine that solved that.
 
 The ticks count what the solve did, not how long it took: every run of the
 same binary on the same model with the same parameters reports the same

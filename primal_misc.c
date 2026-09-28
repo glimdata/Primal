@@ -1183,7 +1183,8 @@ const char *const iinf_names[PRIMAL_IINF_END] = {
     "MSK_IINF_SIM_PRIMAL_INF_ITER", "MSK_IINF_SIM_PRIMAL_ITER", "MSK_IINF_SIM_SOLVE_DUAL",
     "MSK_IINF_SOL_BAS_PROSTA", "MSK_IINF_SOL_BAS_SOLSTA", "MSK_IINF_SOL_ITG_PROSTA",
     "MSK_IINF_SOL_ITG_SOLSTA", "MSK_IINF_SOL_ITR_PROSTA", "MSK_IINF_SOL_ITR_SOLSTA",
-    "MSK_IINF_STO_NUM_A_REALLOC"
+    "MSK_IINF_STO_NUM_A_REALLOC",
+    "PRIMAL_IINF_OPTIMIZE_ENGINE"   /* this solver's own item: no reference name */
 };
 
 const char *const liinf_names[PRIMAL_LIINF_END] = {
@@ -1373,6 +1374,7 @@ PRIMALrescodee PRIMAL_getintinf(PRIMALtask_t t, PRIMALiinfiteme which, int *valu
     case PRIMAL_IINF_MIO_NUM_RELAX:            *value = t->mio_relax; break;
     case PRIMAL_IINF_MIO_NUM_SOLVED_NODES:     *value = t->mio_nodes; break;
     case PRIMAL_IINF_MIO_NUM_BRANCH:           *value = t->mio_branch; break;
+    case PRIMAL_IINF_OPTIMIZE_ENGINE:          *value = t->engine; break;
     case PRIMAL_IINF_RD_PROTYPE: {
         PRIMALproblemtypee pt = PRIMAL_PROBTYPE_LO;
         PRIMAL_getprobtype(t, &pt);

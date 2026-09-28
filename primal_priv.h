@@ -235,6 +235,11 @@ struct PRIMAL_task_s {
      * the branch-and-bound's nodes, relaxations and branches. */
     int intpnt_iter, sim_primal_iter, sim_dual_iter;
     int mio_relax, mio_nodes, mio_branch;
+    /* The engine whose result the last optimize reports (PRIMALenginee,
+     * getintinf OPTIMIZE_ENGINE). Written only by the thread that runs a
+     * route on this task: engines that share a task across threads report
+     * theirs to their caller instead. */
+    int engine;
     /* Operations the kernels counted during the last optimize (getdouinf
      * OPTIMIZER_TICKS reports them in millions), summed over every thread that
      * worked for the task. */
@@ -300,7 +305,7 @@ typedef struct {
     const int *Qptr, *Qrow; const double *Qval;
     int m, n; const double *b, *c; PRIMALtask_t t;
     double *xt, *ystd, *zst; const double *x0, *y0;
-    int method; double *dray, *pray; int status; double elapsed;
+    int method; double *dray, *pray; int status; double elapsed; int engine;
 } ConcJob;
 typedef struct { int n; int *idx; int *bkc; double *blc, *buc; } SavedRows;
 typedef struct { PRIMALtask_t t; int s; PRIMALrescodee rc; } MipKidJob;
@@ -455,19 +460,22 @@ double *scaled_qvals(PRIMALtask_t t, double s, const double *ds);
 double soc_dual_component(const PRIMALtask_t t, int k, int i, double raw);
 /* True when which is one of the declared solution keys. */
 int sol_key_ok(PRIMALsolt which);
-/* Runs simplex and IPM concurrently on one standard form; returns the winner. */
+/* Runs simplex and IPM concurrently on one standard form; returns the winner's
+ * status and writes its PRIMALenginee to *engine (NULL allowed). */
 int solve_std_conc(const int *Aptr, const int *Arow, const double *Aval,
                           const int *Qptr, const int *Qrow, const double *Qval,
                           int m, int n, const double *b, const double *c, PRIMALtask_t t,
                           double *xt, double *ystd, double *zst,
-                          const double *x0, const double *y0, double *dray, double *pray);
-/* Solves one standard form on the route chosen by std_route_method. */
+                          const double *x0, const double *y0, double *dray, double *pray,
+                          int *engine);
+/* Solves one standard form on the route chosen by std_route_method; writes the
+ * PRIMALenginee that produced the status to *engine (NULL allowed). */
 int solve_std_routed(const int *Aptr, const int *Arow, const double *Aval,
                             const int *Qptr, const int *Qrow, const double *Qval,
                             int m, int n, const double *b, const double *c,
                             PRIMALtask_t t, double *xt, double *ystd, double *zst,
                             const double *x0, const double *y0, int method,
-                            double *dray, double *pray);
+                            double *dray, double *pray, int *engine);
 /* Chooses the solver route for a standard form from its class and size. */
 int std_route_method(int hasQ, int m, int n, PRIMALtask_t t);
 /* Computes Q x for the task's quadratic objective into out. */

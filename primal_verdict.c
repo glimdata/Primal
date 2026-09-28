@@ -898,6 +898,7 @@ PRIMALrescodee PRIMAL_optimize(PRIMALtask_t t) {
     if (t) { t->opt_deadline = deadline; t->mip_deadline = mip_deadline; }
     if (t) t->intpnt_iter = t->sim_primal_iter = t->sim_dual_iter =
            t->mio_relax = t->mio_nodes = t->mio_branch = 0;
+    if (t) t->engine = PRIMAL_ENGINE_NONE;
     /* This thread's work ledger for the whole solve; the worker threads keep
      * their own and add them to the task they serve. */
     double work = 0.0, *work_prev = NULL;

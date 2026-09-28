@@ -375,6 +375,7 @@ static PRIMALrescodee optimize_sdp_ipm_impl(PRIMALtask_t t, int s) {
     if (!alloc_ok) rc = PRIMAL_RES_ERR_ALLOC;
     else {
         int fb = 0;
+        t->engine = PRIMAL_ENGINE_CONIC_NATIVE;
         int st = sdp_ipm(mTot, nv2, E2, b2, c2, nb, t->barDim,
                          (const double *const *)Cbar, (const double *const *)Abar,
                          nsoc, socdim, (const double *const *)Csoc, (const double *const *)Asoc,
@@ -1009,6 +1010,7 @@ static PRIMALrescodee optimize_sdp_impl(PRIMALtask_t t, int s) {
 
         if (!eval || !evec || !Xf || !zsol || !yb) { rc = PRIMAL_RES_ERR_ALLOC; }
         else {
+            t->engine = PRIMAL_ENGINE_TANGENT_CUTS;
             for (int round = 0; round <= SDP_MAXROUND && rc == PRIMAL_RES_OK; round++) {
                 {
                     char pb[96];
@@ -1442,7 +1444,7 @@ int mip_relax(PRIMALtask_t t, int s, const double *lx, const double *ux,
          * optimum (see the forward-declaration comment). */
         status = solve_std_routed(sf->Aptr, sf->Arow, sf->Aval, NULL, NULL, NULL,
                                   sf->m, sf->n, sf->b, sf->c, t, xt, ystd, zst,
-                                  NULL, NULL, 0, NULL, NULL);
+                                  NULL, NULL, 0, NULL, NULL, NULL);
     }
     count_add(&t->mio_relax, 1);
     if (status == 0 || status == 2) {
