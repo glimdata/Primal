@@ -96,6 +96,7 @@ deterministic models, 44 finance models, 16 book models.
 ```sh
 make               # gcc -std=c99 -Wall -Wextra -pedantic -O2, zero warnings
 make test          # reliability suite: 4891 checks
+make test TEST=T12 # only the tests whose name contains T12 (T12, T120-T129)
 make run-samples   # the 171 examples
 make clean         # remove out/
 ```

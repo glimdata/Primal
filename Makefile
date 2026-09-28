@@ -51,8 +51,10 @@ $(OUT)/example_lp: example_lp.c $(OBJS)
 $(OUT)/run_tests: test_primal.c $(OBJS)
 	$(CC) $(CFLAGS) -o $@ test_primal.c $(OBJS) $(LDLIBS)
 
+# make test TEST=T273 runs only the tests whose name contains T273 (several
+# words select every test that matches one of them).
 test: $(OUT)/run_tests
-	./$(OUT)/run_tests
+	./$(OUT)/run_tests$(if $(TEST), $(TEST))
 
 example: $(OUT)/example_lp
 	./$(OUT)/example_lp
