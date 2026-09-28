@@ -1216,7 +1216,8 @@ PRIMALrescodee PRIMAL_getinfmax(PRIMALtask_t t, PRIMALinftypee inftype, int *inf
     if (!t || !infmax) return PRIMAL_RES_ERR_NULL;
     int n;
     if (!inf_names(inftype, &n)) return PRIMAL_RES_ERR_ARG;
-    *infmax = n;   /* the reference: max index + 1, i.e. END */
+    *infmax = n;   /* max index + 1, i.e. END: the reference's range, plus this
+                    * solver's own OPTIMIZE_ENGINE for the int items */
     return PRIMAL_RES_OK;
 }
 

@@ -694,7 +694,7 @@ typedef enum {
     PRIMAL_IINF_SOL_ITR_SOLSTA = 135,
     PRIMAL_IINF_STO_NUM_A_REALLOC = 136,
     /* This solver's own item, after the reference's range: the engine whose
-     * result the last optimize reports, a PRIMALenginee value. */
+     * result the route of the last optimize returned, a PRIMALenginee value. */
     PRIMAL_IINF_OPTIMIZE_ENGINE = 137,
     PRIMAL_IINF_END = 138
 } PRIMALiinfiteme;

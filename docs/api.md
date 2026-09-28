@@ -106,7 +106,7 @@ reference's range and named `PRIMAL_IINF_OPTIMIZE_ENGINE`. The measured ones:
 | `IINF_MIO_NUM_SOLVED_NODES`, `IINF_MIO_NUM_RELAX`, `IINF_MIO_NUM_BRANCH` | branch-and-bound nodes solved, relaxations solved, branchings |
 | `IINF_ANA_PRO_*`, `IINF_OPT_NUM*`, `IINF_RD_*`, `LIINF_RD_*` | model shape |
 | `IINF_OPTIMIZE_RESPONSE`, `IINF_SOL_*_PROSTA`, `IINF_SOL_*_SOLSTA` | last response code and statuses |
-| `IINF_OPTIMIZE_ENGINE` | the engine whose result the last `optimize` reports, a `PRIMAL_ENGINE_*` value |
+| `IINF_OPTIMIZE_ENGINE` | the engine whose result the route of the last `optimize` returned, a `PRIMAL_ENGINE_*` value |
 
 Every other id is accepted and answers 0. The iteration and node counters
 describe the last `optimize` call only and count every run of that optimizer
@@ -115,12 +115,13 @@ branch-and-bound (probing and strong branching included), the LP masters of
 the cut loops and each engine of the concurrent optimizer. The conic interior
 point (SOCP, SDP, exponential and power cones) is not counted.
 
-The engine item names the one engine whose result the solve reports, not
-every engine that ran:
+The engine item names the one engine whose result the route returned (its
+point, or its status when it stopped without one), not every engine that
+ran:
 
 | `PRIMAL_ENGINE_*` | reported when |
 |---|---|
-| `NONE` | no engine ran: the task was not optimized, presolve answered, or the model was refused |
+| `NONE` | no engine ran: the task was not optimized, presolve answered, or the model was refused before an engine started |
 | `SIMPLEX_REVISED`, `SIMPLEX_TABLEAU` | the primal simplex answered: the revised method from the crash basis, or the tableau when the revised method does not reach an optimum (`OPTIMIZER_DUAL_SIMPLEX` takes this route too) |
 | `DUAL_SIMPLEX` | the dual simplex of the concurrent optimizer won |
 | `INTPNT_DENSE`, `INTPNT_SPARSE` | the linear/quadratic interior point answered, on the dense augmented system or on sparse normal equations |
@@ -132,6 +133,10 @@ every engine that ran:
 With the concurrent optimizer it is the engine of the winning worker. A model
 with quadratic rows, or a quadratic objective together with cones, is solved
 through its conic encoding, and the item names the engine that solved that.
+The checks `optimize` applies after the route (the cone membership of a conic
+point, the model's own verdict when a route stopped without an answer) can
+refuse the route's point or replace its status; the item still names the
+engine the route ran, which is what tells a failed route apart from another.
 
 The ticks count what the solve did, not how long it took: every run of the
 same binary on the same model with the same parameters reports the same

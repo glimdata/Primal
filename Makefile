@@ -52,9 +52,11 @@ $(OUT)/run_tests: test_primal.c $(OBJS)
 	$(CC) $(CFLAGS) -o $@ test_primal.c $(OBJS) $(LDLIBS)
 
 # make test TEST=T273 runs only the tests whose name contains T273 (several
-# words select every test that matches one of them).
+# words select every test that matches one of them). Only a TEST given on the
+# command line selects: one inherited from the environment would silently
+# shrink the suite.
 test: $(OUT)/run_tests
-	./$(OUT)/run_tests$(if $(TEST), $(TEST))
+	./$(OUT)/run_tests$(if $(filter command line,$(origin TEST)), $(TEST))
 
 example: $(OUT)/example_lp
 	./$(OUT)/example_lp

@@ -235,10 +235,10 @@ struct PRIMAL_task_s {
      * the branch-and-bound's nodes, relaxations and branches. */
     int intpnt_iter, sim_primal_iter, sim_dual_iter;
     int mio_relax, mio_nodes, mio_branch;
-    /* The engine whose result the last optimize reports (PRIMALenginee,
-     * getintinf OPTIMIZE_ENGINE). Written only by the thread that runs a
-     * route on this task: engines that share a task across threads report
-     * theirs to their caller instead. */
+    /* The engine whose result the route of the last optimize returned
+     * (PRIMALenginee, getintinf OPTIMIZE_ENGINE). Written only by the thread
+     * that runs a route on this task: engines that share a task across
+     * threads report theirs to their caller instead. */
     int engine;
     /* Operations the kernels counted during the last optimize (getdouinf
      * OPTIMIZER_TICKS reports them in millions), summed over every thread that

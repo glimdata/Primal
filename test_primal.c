@@ -20024,15 +20024,26 @@ static void test_t273(void) {
 }
 
 /* T274: getintinf(OPTIMIZE_ENGINE) names the engine that answered the last
- * optimize. On one small LP every IPAR_OPTIMIZER value reports the method it
- * selects (DUAL_SIMPLEX runs the primal simplex, a documented deviation; a
- * problem this small stays on the dense interior point), each solve reporting
- * its own; a pure SOCP this small reports the dense conic backend. */
+ * optimize, each solve reporting its own. On one small LP every IPAR_OPTIMIZER
+ * value reports the method it selects (DUAL_SIMPLEX runs the primal simplex, a
+ * documented deviation; a problem this small stays on the dense interior
+ * point), four threads report the concurrent optimizer's winner (the simplex,
+ * by its tie-break) and integers report branch and bound. A wide LP takes the
+ * sparse interior point; a small SOCP the dense conic backend, and a quadratic
+ * row the same backend through its conic encoding; an SDP and an exponential
+ * cone the native conic interior point, and the cone the tangent cuts when the
+ * native route is switched off. */
 static int t274_engine(PRIMALtask_t t) {
     int e = -1;
     check_rc(PRIMAL_getintinf(t, PRIMAL_IINF_OPTIMIZE_ENGINE, &e), PRIMAL_RES_OK,
              "T274 getintinf OPTIMIZE_ENGINE");
     return e;
+}
+/* Optimize t and check that it reports engine a or engine b. */
+static void t274_solve(PRIMALtask_t t, int a, int b, const char *what) {
+    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, what);
+    int e = t274_engine(t);
+    check(e == a || e == b, what);
 }
 static void test_t274(void) {
     cur_name = "T274 getintinf: the engine that answered";
@@ -20051,14 +20062,39 @@ static void test_t274(void) {
                          PRIMAL_OPTIMIZER_PRIMAL_SIMPLEX, PRIMAL_OPTIMIZER_DUAL_SIMPLEX };
     for (int k = 0; k < 4; k++) {
         PRIMAL_putintparam(t, PRIMAL_IPAR_OPTIMIZER, opt[k]);
-        check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T274 LP optimize");
-        int e = t274_engine(t);
         if (opt[k] == PRIMAL_OPTIMIZER_INTPNT)
-            check(e == PRIMAL_ENGINE_INTPNT_DENSE, "T274 INTPNT: the dense interior point answers");
+            t274_solve(t, PRIMAL_ENGINE_INTPNT_DENSE, PRIMAL_ENGINE_INTPNT_DENSE,
+                       "T274 INTPNT: the dense interior point answers");
         else
-            check(e == PRIMAL_ENGINE_SIMPLEX_REVISED || e == PRIMAL_ENGINE_SIMPLEX_TABLEAU,
-                  "T274 FREE, PRIMAL_SIMPLEX, DUAL_SIMPLEX: a primal simplex answers");
+            t274_solve(t, PRIMAL_ENGINE_SIMPLEX_REVISED, PRIMAL_ENGINE_SIMPLEX_TABLEAU,
+                       "T274 FREE, PRIMAL_SIMPLEX, DUAL_SIMPLEX: a primal simplex answers");
     }
+    PRIMAL_putintparam(t, PRIMAL_IPAR_OPTIMIZER, PRIMAL_OPTIMIZER_INTPNT);
+    PRIMAL_putintparam(t, PRIMAL_IPAR_NUM_THREADS, 4);
+    t274_solve(t, PRIMAL_ENGINE_SIMPLEX_REVISED, PRIMAL_ENGINE_SIMPLEX_TABLEAU,
+               "T274 INTPNT on 4 threads: the concurrent winner, the simplex by its tie-break");
+    PRIMAL_putintparam(t, PRIMAL_IPAR_NUM_THREADS, 1);
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_UP, -INFINITY, 3.5);
+    PRIMAL_putvartype(t, 0, PRIMAL_VAR_TYPE_INT);
+    PRIMAL_putvartype(t, 1, PRIMAL_VAR_TYPE_INT);
+    t274_solve(t, PRIMAL_ENGINE_MIXED_INT, PRIMAL_ENGINE_MIXED_INT, "T274 integers: branch and bound");
+    pend(&p);
+
+    /* min sum (1 + j/100) x_j  s.t.  x_j + x_{j+1} >= 1,  0 <= x <= 1, 200 columns */
+    pbegin(&p); t = p.task;
+    PRIMAL_appendvars(t, 200);
+    PRIMAL_appendcons(t, 199);
+    for (int j = 0; j < 200; j++) {
+        PRIMAL_putvarbound(t, j, PRIMAL_BK_RA, 0.0, 1.0);
+        PRIMAL_putcj(t, j, 1.0 + 0.01 * j);
+    }
+    for (int i = 0; i < 199; i++) {
+        PRIMAL_putarow(t, i, 2, (int[]){i, i + 1}, (double[]){1.0, 1.0});
+        PRIMAL_putconbound(t, i, PRIMAL_BK_LO, 1.0, INFINITY);
+    }
+    PRIMAL_putintparam(t, PRIMAL_IPAR_OPTIMIZER, PRIMAL_OPTIMIZER_INTPNT);
+    t274_solve(t, PRIMAL_ENGINE_INTPNT_SPARSE, PRIMAL_ENGINE_INTPNT_SPARSE,
+               "T274 a wide LP: the sparse interior point");
     pend(&p);
 
     /* min t  s.t.  x1 + x2 = 10,  (t, x1, x2) in Q^3 */
@@ -20070,8 +20106,52 @@ static void test_t274(void) {
     PRIMAL_putarow(t, 0, 2, (int[]){1, 2}, (double[]){1.0, 1.0});
     PRIMAL_putconbound(t, 0, PRIMAL_BK_FX, 10.0, 10.0);
     PRIMAL_appendcone(t, PRIMAL_CT_QUAD, 0.0, 3, (int[]){0, 1, 2});
-    check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T274 SOCP optimize");
-    check(t274_engine(t) == PRIMAL_ENGINE_CONIC_DENSE, "T274 SOCP: the dense conic backend answers");
+    t274_solve(t, PRIMAL_ENGINE_CONIC_DENSE, PRIMAL_ENGINE_CONIC_DENSE,
+               "T274 SOCP: the dense conic backend answers");
+    pend(&p);
+
+    /* min -x - y  s.t.  x^2 + y^2 <= 1 */
+    pbegin(&p); t = p.task;
+    PRIMAL_appendvars(t, 2);
+    PRIMAL_appendcons(t, 1);
+    PRIMAL_putvarbound(t, 0, PRIMAL_BK_FR, 0.0, 0.0);
+    PRIMAL_putvarbound(t, 1, PRIMAL_BK_FR, 0.0, 0.0);
+    PRIMAL_putcj(t, 0, -1.0); PRIMAL_putcj(t, 1, -1.0);
+    PRIMAL_putqconk(t, 0, 2, (int[]){0, 1}, (int[]){0, 1}, (double[]){2.0, 2.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_UP, -INFINITY, 1.0);
+    t274_solve(t, PRIMAL_ENGINE_CONIC_DENSE, PRIMAL_ENGINE_CONIC_DENSE,
+               "T274 a quadratic row: the dense conic backend of its encoding");
+    pend(&p);
+
+    /* min <I, X>  s.t.  X00 - X11 = 1,  X PSD 2x2 */
+    pbegin(&p); t = p.task;
+    PRIMAL_appendcons(t, 1);
+    int mI, mA, mB, dim = 2;
+    PRIMAL_appendsparsesymmat(t, 2, 2, (int[]){0, 1}, (int[]){0, 1}, (double[]){1.0, 1.0}, &mI);
+    PRIMAL_appendsparsesymmat(t, 2, 1, (int[]){0}, (int[]){0}, (double[]){1.0}, &mA);
+    PRIMAL_appendsparsesymmat(t, 2, 1, (int[]){1}, (int[]){1}, (double[]){-1.0}, &mB);
+    PRIMAL_appendbarvars(t, 1, &dim);
+    PRIMAL_putbarcj(t, 0, 1, (int[]){mI}, (double[]){1.0});
+    PRIMAL_putbaraij(t, 0, 0, 2, (int[]){mA, mB}, (double[]){1.0, 1.0});
+    PRIMAL_putconbound(t, 0, PRIMAL_BK_FX, 1.0, 1.0);
+    t274_solve(t, PRIMAL_ENGINE_CONIC_NATIVE, PRIMAL_ENGINE_CONIC_NATIVE,
+               "T274 SDP: the native conic interior point");
+    pend(&p);
+
+    /* min t  s.t.  (t, 1, -1) in PEXP */
+    pbegin(&p); t = p.task;
+    PRIMAL_appendvars(t, 3);
+    PRIMAL_putvarbound(t, 0, PRIMAL_BK_FR, 0.0, 0.0);
+    PRIMAL_putvarbound(t, 1, PRIMAL_BK_FX, 1.0, 1.0);
+    PRIMAL_putvarbound(t, 2, PRIMAL_BK_FX, -1.0, -1.0);
+    PRIMAL_putcj(t, 0, 1.0);
+    PRIMAL_appendcone(t, PRIMAL_CT_PEXP, 0.0, 3, (int[]){0, 1, 2});
+    t274_solve(t, PRIMAL_ENGINE_CONIC_NATIVE, PRIMAL_ENGINE_CONIC_NATIVE,
+               "T274 exp cone: the native conic interior point");
+    setenv("GMB_NO_EXP_IPM", "1", 1);
+    t274_solve(t, PRIMAL_ENGINE_TANGENT_CUTS, PRIMAL_ENGINE_TANGENT_CUTS,
+               "T274 exp cone, native route off: the tangent cuts");
+    unsetenv("GMB_NO_EXP_IPM");
     pend(&p);
 
     char nm[PRIMAL_MAX_INFNAME_LEN];
@@ -20080,8 +20160,8 @@ static void test_t274(void) {
     check(strcmp(nm, "PRIMAL_IINF_OPTIMIZE_ENGINE") == 0, "T274 the item's name");
 }
 
-/* Every test, in the order the suite runs them. The name is the id that labels
- * the test's checks, taken from the function name so the two cannot differ. */
+/* Every test, in the order the suite runs them, named T<id> after its function.
+ * The name also labels the failures of a test that sets no cur_name itself. */
 #define TEST(id) { "T" #id, test_t##id }
 static const struct { const char *name; void (*run)(void); } tests[] = {
     TEST(274),
@@ -20371,7 +20451,7 @@ int main(int argc, char **argv) {
         int selected = (argc < 2);
         for (int a = 1; a < argc && !selected; a++)
             selected = (strstr(tests[i].name, argv[a]) != NULL);
-        if (selected) { tests[i].run(); nrun++; }
+        if (selected) { cur_name = tests[i].name; tests[i].run(); nrun++; }
     }
 
     printf("\n========================================\n");
