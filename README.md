@@ -149,7 +149,11 @@ objective against the analytic value; it exits non-zero on a mismatch. LP/QP/
 MILP are the generated MPS instances, SOCP/SDP are the closed-form families of
 `bench/conic_bench.c` and `bench/sdp_sweep.c`. The SDP sweep reaches **d = 22**;
 `d = 20` is the one block the interior point does not close on this family yet
-(`rc = 1007`, listed, not hidden).
+(`rc = 1007`, listed, not hidden). The three drivers `solve_mps`, `conic_bench`
+and `sdp_sweep` take `--repeat N` and print, after their CSV fields, the median
+wall time, the min and median CPU time of the N runs, the deterministic
+`DINF_OPTIMIZER_TICKS` and the iteration and node counters;
+`bench/instances/index.csv` also lists the Netlib LPs on disk.
 
 <div style="font-size: 0.9em">
 

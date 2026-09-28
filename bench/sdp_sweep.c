@@ -22,27 +22,22 @@
  * stops scaling -- the target of the Clarabel-style rewrite
  * (Piani/Piano-Rewrite-Solver-Conico-Stile-Clarabel.md, F0).
  *
- * Usage: sdp_sweep [dmin] [dmax]   (default 4 16)
- * Prints CSV: d,obj,seconds,rc,expected
+ * Usage: sdp_sweep [--repeat N] [dmin] [dmax]   (default 4 16)
+ * Prints CSV: d,obj,seconds,rc,expected,<tail> where seconds is the smallest
+ * wall time of the N runs (each on a freshly built task) and the tail is the
+ * key=value block of bench_stats.h (median wall time, min and median CPU
+ * time, ticks, counters).
  */
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <math.h>
 #include "primal.h"
+#include "bench_stats.h"
 
 static unsigned rng_state;
 static double urand(void) { rng_state = rng_state * 1103515245u + 12345u; return (double)((rng_state >> 16) & 0x7fff) / 32767.0; }
-static double now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec; }
 
-static int run_sdp(int d, int seed) {
-    rng_state = (unsigned)seed;
-    double v[128], sumabs = 0.0;
-    for (int i = 0; i < d; i++) { v[i] = urand() * 2.0 - 1.0; sumabs += fabs(v[i]); }
-    double expected = -sumabs * sumabs;
-
-    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
-    PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
+static void build_sdp(PRIMALtask_t t, int d, const double *v) {
     PRIMAL_appendvars(t, 1);
     PRIMAL_putvarbound(t, 0, PRIMAL_BK_FX, 0.0, 0.0);
     int dim = d;
@@ -59,17 +54,35 @@ static int run_sdp(int d, int seed) {
         PRIMAL_putbaraij(t, i, 0, 1, (int[]){mE}, (double[]){1.0});
         PRIMAL_putconbound(t, i, PRIMAL_BK_FX, 1.0, 1.0);
     }
-    double a = now();
-    PRIMALrescodee rc = PRIMAL_optimize(t);
-    double sec = now() - a;
+}
+
+static int run_sdp(int d, int seed, int nrep) {
+    rng_state = (unsigned)seed;
+    double v[128], sumabs = 0.0;
+    for (int i = 0; i < d; i++) { v[i] = urand() * 2.0 - 1.0; sumabs += fabs(v[i]); }
+    double expected = -sumabs * sumabs;
+
+    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
+    BenchStats s = {0, {0}, {0}, 0.0, 0, 0, 0, 0};
+    PRIMALrescodee rc = PRIMAL_RES_OK;
     double obj = 0.0;
-    if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
-    printf("%d,%.8g,%.6f,%d,%.8g\n", d, obj, sec, (int)rc, expected);
-    PRIMAL_deletetask(&t); PRIMAL_deleteenv(&env);
+    for (int rep = 0; rep < nrep; rep++) {
+        PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
+        build_sdp(t, d, v);
+        rc = bench_optimize(t, &s);
+        obj = 0.0;
+        if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
+        PRIMAL_deletetask(&t);
+    }
+    printf("%d,%.8g,%.6f,%d,%.8g", d, obj, bench_min(s.wall, s.n), (int)rc, expected);
+    bench_print_tail(&s);
+    printf("\n");
+    PRIMAL_deleteenv(&env);
     return rc == PRIMAL_RES_OK ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
+    int nrep = bench_repeat(&argc, argv);
     int dmin = argc > 1 ? atoi(argv[1]) : 4;
     int dmax = argc > 2 ? atoi(argv[2]) : 16;
     /* run_sdp writes v[128] and the d(d+1)/2 triangular triplets into si/sj/sv
@@ -80,7 +93,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "sdp_sweep: need 1 <= dmin <= dmax <= 90\n");
         return 2;
     }
-    printf("d,obj,seconds,rc,expected\n");
-    for (int d = dmin; d <= dmax; d++) run_sdp(d, 200 + d);
+    printf("d,obj,seconds,rc,expected" BENCH_TAIL_HEADER "\n");
+    for (int d = dmin; d <= dmax; d++) run_sdp(d, 200 + d, nrep);
     return 0;
 }

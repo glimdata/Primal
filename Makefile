@@ -176,15 +176,15 @@ run-samples: samples
 # ---- benchmark harness (see bench/) ----
 bench: $(OUT)/bench/solve_mps $(OUT)/bench/conic_bench $(OUT)/bench/expcone_route_probe $(OUT)/bench/expcone_ipm_probe $(OUT)/bench/sdp_sweep
 
-$(OUT)/bench/sdp_sweep: bench/sdp_sweep.c $(LIB_A) | $(OUT)
+$(OUT)/bench/sdp_sweep: bench/sdp_sweep.c bench/bench_stats.h $(LIB_A) | $(OUT)
 	mkdir -p $(OUT)/bench
 	$(CC) $(CFLAGS) -I. bench/sdp_sweep.c $(LIB_A) $(LDLIBS) -o $@
 
-$(OUT)/bench/solve_mps: bench/solve_mps.c $(LIB_A) | $(OUT)
+$(OUT)/bench/solve_mps: bench/solve_mps.c bench/bench_stats.h $(LIB_A) | $(OUT)
 	mkdir -p $(OUT)/bench
 	$(CC) $(CFLAGS) -I. bench/solve_mps.c $(LIB_A) $(LDLIBS) -o $@
 
-$(OUT)/bench/conic_bench: bench/conic_bench.c $(LIB_A) | $(OUT)
+$(OUT)/bench/conic_bench: bench/conic_bench.c bench/bench_stats.h $(LIB_A) | $(OUT)
 	mkdir -p $(OUT)/bench
 	$(CC) $(CFLAGS) -I. bench/conic_bench.c $(LIB_A) $(LDLIBS) -o $@
 

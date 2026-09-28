@@ -63,7 +63,7 @@ def solve_primal(path, timeout):
     except subprocess.TimeoutExpired:
         return "timeout", None, None
     p = out.split(",")
-    if len(p) != 5 or p[0] == "READ_ERROR":
+    if len(p) < 5 or p[0] == "READ_ERROR":
         return "error", None, None
     return "ok", float(p[4]), float(p[3])
 

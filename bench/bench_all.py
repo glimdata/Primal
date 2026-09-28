@@ -69,10 +69,11 @@ for _n, _m in ((40, 20), (60, 30), (80, 40)):
 
 
 def solve_ps(path):
-    """PrimalSolver time from out/bench/solve_mps (CSV: rc,nvar,ncon,obj,s)."""
+    """PrimalSolver time from out/bench/solve_mps (CSV: rc,nvar,ncon,obj,s,...)."""
     try:
         out = subprocess.run([SOLVE_MPS, path], capture_output=True, text=True, timeout=600)
-        rc, _, _, obj, sec = out.stdout.strip().split(",")
+        p = out.stdout.strip().split(",")
+        rc, obj, sec = p[0], p[3], p[4]
         if rc != "0":
             return "N/A", None
         return "%.4f" % float(sec), float(obj)

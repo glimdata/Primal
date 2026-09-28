@@ -35,48 +35,49 @@
 
 /* solve_mps.c - PrimalSolver benchmark driver.
  * Reads an MPS / CPLEX LP / CBF file, solves it, prints one CSV line:
- *   rc,nvar,ncon,obj,seconds
- * Timing covers PRIMAL_optimize only (model I/O excluded). */
+ *   rc,nvar,ncon,obj,seconds,<tail>
+ * where seconds is the smallest wall time of the runs and the tail is the
+ * key=value block of bench_stats.h (median wall time, min and median CPU
+ * time, ticks, counters).  `--repeat N` solves the model N times, each on a
+ * freshly read task; timing covers PRIMAL_optimize only (model I/O excluded). */
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include "../primal.h"
-
-/* Current wall-clock time in seconds. */
-static double now(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)tv.tv_sec + 1e-6 * (double)tv.tv_usec;
-}
+#include "bench_stats.h"
 
 /* Read the model file, solve it and print one CSV result line. */
 int main(int argc, char **argv) {
-    if (argc < 2) { fprintf(stderr, "usage: %s <file>\n", argv[0]); return 2; }
+    int nrep = bench_repeat(&argc, argv);
+    if (argc < 2) { fprintf(stderr, "usage: %s [--repeat N] <file>\n", argv[0]); return 2; }
     PRIMALenv_t env = NULL;
     if (PRIMAL_makeenv(&env, NULL) != PRIMAL_RES_OK) return 2;
     PRIMALtask_t t = NULL;
-    if (PRIMAL_maketask(env, 0, 0, &t) != PRIMAL_RES_OK) return 2;
-
-    PRIMALrescodee rc = PRIMAL_readdata(t, argv[1]);
-    if (rc != PRIMAL_RES_OK) {
-        printf("READ_ERROR,%d,0,0,0\n", (int)rc);
-        PRIMAL_deletetask(&t); PRIMAL_deleteenv(&env);
-        return 1;
-    }
+    BenchStats s = {0, {0}, {0}, 0.0, 0, 0, 0, 0};
+    PRIMALrescodee rc = PRIMAL_RES_OK;
     int nv = 0, nc = 0;
-    PRIMAL_getnumvar(t, &nv);
-    PRIMAL_getnumcon(t, &nc);
-    /* diagnostic hooks (bench only): toggle the LP pipeline from the env */
-    if (getenv("GMB_BENCH_NOPRESOLVE")) PRIMAL_putintparam(t, PRIMAL_IPAR_PRESOLVE, 0);
-    if (getenv("GMB_BENCH_NOSCALING"))  PRIMAL_putintparam(t, PRIMAL_IPAR_SCALING, 0);
-
-    double a = now();
-    rc = PRIMAL_optimize(t);
-    double sec = now() - a;
-
     double obj = 0.0;
-    if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
-    printf("%d,%d,%d,%.10g,%.6f\n", (int)rc, nv, nc, obj, sec);
+    for (int rep = 0; rep < nrep; rep++) {
+        if (t) PRIMAL_deletetask(&t);
+        if (PRIMAL_maketask(env, 0, 0, &t) != PRIMAL_RES_OK) { PRIMAL_deleteenv(&env); return 2; }
+        rc = PRIMAL_readdata(t, argv[1]);
+        if (rc != PRIMAL_RES_OK) {
+            printf("READ_ERROR,%d,0,0,0\n", (int)rc);
+            PRIMAL_deletetask(&t); PRIMAL_deleteenv(&env);
+            return 1;
+        }
+        PRIMAL_getnumvar(t, &nv);
+        PRIMAL_getnumcon(t, &nc);
+        /* diagnostic hooks (bench only): toggle the LP pipeline from the env */
+        if (getenv("GMB_BENCH_NOPRESOLVE")) PRIMAL_putintparam(t, PRIMAL_IPAR_PRESOLVE, 0);
+        if (getenv("GMB_BENCH_NOSCALING"))  PRIMAL_putintparam(t, PRIMAL_IPAR_SCALING, 0);
+
+        rc = bench_optimize(t, &s);
+        obj = 0.0;
+        if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
+    }
+    printf("%d,%d,%d,%.10g,%.6f", (int)rc, nv, nc, obj, bench_min(s.wall, s.n));
+    bench_print_tail(&s);
+    printf("\n");
     if (getenv("GMB_BENCH_DIAG")) {
         double pinf = -1.0, dobj = 0.0;
         PRIMAL_getprimalinfeas(t, PRIMAL_SOL_ITR, &pinf);

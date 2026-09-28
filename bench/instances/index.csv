@@ -9,3 +9,17 @@ qp_200x100,qp,200,100,22212
 milp_40x20,milp,40,20,139
 milp_60x30,milp,60,30,260
 milp_80x40,milp,80,40,460
+adlittle,netlib,97,56,465
+afiro,netlib,32,27,88
+bandm,netlib,472,305,2659
+beaconfd,netlib,262,173,3476
+blend,netlib,83,74,521
+e226,netlib,282,223,2767
+israel,netlib,142,174,2358
+kb2,netlib,41,43,291
+sc105,netlib,103,105,281
+sc205,netlib,203,205,552
+sc50a,netlib,48,50,131
+sc50b,netlib,48,50,119
+share2b,netlib,79,96,730
+stocfor1,netlib,111,117,474

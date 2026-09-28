@@ -35,7 +35,11 @@
 
 /* conic_bench.c - PrimalSolver SOCP/SDP benchmark (MPS cannot express cones).
  * Deterministic instances from a fixed seed; prints CSV:
- *   class,n,size,obj,seconds,rc[,expected]
+ *   class,n,size,obj,seconds,rc[,expected],<tail>
+ * where seconds is the smallest wall time of the runs and the tail is the
+ * key=value block of bench_stats.h (median wall time, min and median CPU
+ * time, ticks, counters).  `--repeat N` solves every instance N times, each
+ * on a freshly built task.
  *
  * SOCP: min sum_k t_k  s.t. (t_k, x_2k, x_2k+1) in QUAD, sum_i x_i = 1.
  *       Optimum = 1/sqrt(2) (equal split in one cone).
@@ -45,15 +49,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <sys/time.h>
 #include "primal.h"
-
-/* Current wall-clock time in seconds. */
-static double now(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)tv.tv_sec + 1e-6 * (double)tv.tv_usec;
-}
+#include "bench_stats.h"
 
 static unsigned rng_state;
 /* Deterministic pseudo-random draw in [0,1] from rng_state. */
@@ -62,12 +59,9 @@ static double urand(void) {
     return (double)((rng_state >> 16) & 0x7fff) / 32767.0;
 }
 
-/* Solve one SOCP instance of size n and print its CSV line. */
-static int run_socp(int n, int seed) {
-    (void)seed;
+/* Build the SOCP instance of size n into t. */
+static void build_socp(PRIMALtask_t t, int n) {
     int K = n / 2;
-    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
-    PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
     PRIMAL_appendvars(t, n + K);           /* x_0..x_{n-1}, t_0..t_{K-1} */
     for (int j = 0; j < n; j++)
         PRIMAL_putvarbound(t, j, PRIMAL_BK_FR, -INFINITY, INFINITY);
@@ -86,26 +80,33 @@ static int run_socp(int n, int seed) {
         PRIMAL_putconbound(t, 0, PRIMAL_BK_FX, 1.0, 1.0);
         free(sub); free(val);
     }
-    double a = now();
-    PRIMALrescodee rc = PRIMAL_optimize(t);
-    double sec = now() - a;
+}
+
+/* Solve one SOCP instance of size n nrep times and print its CSV line. */
+static int run_socp(int n, int seed, int nrep) {
+    (void)seed;
+    int K = n / 2;
+    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
+    BenchStats s = {0, {0}, {0}, 0.0, 0, 0, 0, 0};
+    PRIMALrescodee rc = PRIMAL_RES_OK;
     double obj = 0.0;
-    if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
-    printf("socp,%d,%d,%.8g,%.6f,rc=%d\n", n, K, obj, sec, (int)rc);
-    PRIMAL_deletetask(&t); PRIMAL_deleteenv(&env);
+    for (int rep = 0; rep < nrep; rep++) {
+        PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
+        build_socp(t, n);
+        rc = bench_optimize(t, &s);
+        obj = 0.0;
+        if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
+        PRIMAL_deletetask(&t);
+    }
+    printf("socp,%d,%d,%.8g,%.6f,rc=%d", n, K, obj, bench_min(s.wall, s.n), (int)rc);
+    bench_print_tail(&s);
+    printf("\n");
+    PRIMAL_deleteenv(&env);
     return rc == PRIMAL_RES_OK ? 0 : 1;
 }
 
-/* Solve one SDP instance of dimension d and print its CSV line. */
-static int run_sdp(int d, int seed) {
-    rng_state = (unsigned)seed;
-    double v[16];
-    double sumabs = 0.0;
-    for (int i = 0; i < d; i++) { v[i] = urand() * 2.0 - 1.0; sumabs += fabs(v[i]); }
-    double expected = -sumabs * sumabs;
-
-    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
-    PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
+/* Build the SDP instance of dimension d with vector v into t. */
+static void build_sdp(PRIMALtask_t t, int d, const double *v) {
     PRIMAL_appendvars(t, 1);
     PRIMAL_putvarbound(t, 0, PRIMAL_BK_FX, 0.0, 0.0);   /* dummy scalar */
     int dim = d;
@@ -131,22 +132,42 @@ static int run_sdp(int d, int seed) {
         PRIMAL_putbaraij(t, i, 0, 1, (int[]){mE}, (double[]){1.0});
         PRIMAL_putconbound(t, i, PRIMAL_BK_FX, 1.0, 1.0);
     }
-    double a = now();
-    PRIMALrescodee rc = PRIMAL_optimize(t);
-    double sec = now() - a;
+}
+
+/* Solve one SDP instance of dimension d nrep times and print its CSV line. */
+static int run_sdp(int d, int seed, int nrep) {
+    rng_state = (unsigned)seed;
+    double v[16];
+    double sumabs = 0.0;
+    for (int i = 0; i < d; i++) { v[i] = urand() * 2.0 - 1.0; sumabs += fabs(v[i]); }
+    double expected = -sumabs * sumabs;
+
+    PRIMALenv_t env = NULL; PRIMAL_makeenv(&env, NULL);
+    BenchStats s = {0, {0}, {0}, 0.0, 0, 0, 0, 0};
+    PRIMALrescodee rc = PRIMAL_RES_OK;
     double obj = 0.0;
-    if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
-    printf("sdp,%d,%d,%.8g,%.6f,rc=%d,expected=%.8g\n",
-           d, d, obj, sec, (int)rc, expected);
-    PRIMAL_deletetask(&t); PRIMAL_deleteenv(&env);
+    for (int rep = 0; rep < nrep; rep++) {
+        PRIMALtask_t t = NULL; PRIMAL_maketask(env, 0, 0, &t);
+        build_sdp(t, d, v);
+        rc = bench_optimize(t, &s);
+        obj = 0.0;
+        if (rc == PRIMAL_RES_OK) PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &obj);
+        PRIMAL_deletetask(&t);
+    }
+    printf("sdp,%d,%d,%.8g,%.6f,rc=%d,expected=%.8g",
+           d, d, obj, bench_min(s.wall, s.n), (int)rc, expected);
+    bench_print_tail(&s);
+    printf("\n");
+    PRIMAL_deleteenv(&env);
     return rc == PRIMAL_RES_OK ? 0 : 1;
 }
 
 /* Run the SOCP/SDP benchmark grid and print the CSV header first. */
-int main(void) {
-    printf("class,n,size,obj,seconds,rc[,expected]\n");
+int main(int argc, char **argv) {
+    int nrep = bench_repeat(&argc, argv);
+    printf("class,n,size,obj,seconds,rc[,expected]" BENCH_TAIL_HEADER "\n");
     int rc = 0;
-    for (int n = 40; n <= 200; n += 80) rc |= run_socp(n, 100 + n);
-    for (int d = 4; d <= 8; d += 1) rc |= run_sdp(d, 200 + d);
+    for (int n = 40; n <= 200; n += 80) rc |= run_socp(n, 100 + n, nrep);
+    for (int d = 4; d <= 8; d += 1) rc |= run_sdp(d, 200 + d, nrep);
     return rc;
 }
