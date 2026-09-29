@@ -20160,10 +20160,58 @@ static void test_t274(void) {
     check(strcmp(nm, "PRIMAL_IINF_OPTIMIZE_ENGINE") == 0, "T274 the item's name");
 }
 
+/* T275: the sparse QP engine solves a separable QP.  min sum (x_j^2 - x_j)
+ * s.t. sum x_j <= 5, 0 <= x_j <= 10 has the optimum x_j = 5/n, objective
+ * -5 + 25/n.  From n = 75 the standard form (a bound row per column) goes to
+ * the sparse QP engine, whose reduced matrix K = A M^-1 A' is an arrowhead:
+ * sparse, so it is factored under a fill-reducing ordering, and the direction
+ * is right only if every solve with that factor undoes the ordering. */
+static void test_t275(void) {
+    cur_name = "T275 sparse QP engine: separable QP with a sparse reduced matrix";
+    const int sizes[2] = { 75, 400 };
+    for (int s = 0; s < 2; s++) {
+        int n = sizes[s];
+        P p; pbegin(&p);
+        PRIMALtask_t t = p.task;
+        PRIMAL_appendvars(t, n);
+        PRIMAL_appendcons(t, 1);
+        for (int j = 0; j < n; j++) {
+            PRIMAL_putvarbound(t, j, PRIMAL_BK_RA, 0.0, 10.0);
+            PRIMAL_putcj(t, j, -1.0);
+            PRIMAL_putaij(t, 0, j, 1.0);
+            PRIMAL_putqobjij(t, j, j, 2.0);
+        }
+        PRIMAL_putconbound(t, 0, PRIMAL_BK_UP, -INFINITY, 5.0);
+        check_rc(PRIMAL_optimize(t), PRIMAL_RES_OK, "T275 optimize");
+        int e = -1;
+        PRIMAL_getintinf(t, PRIMAL_IINF_OPTIMIZE_ENGINE, &e);
+        check(e == PRIMAL_ENGINE_INTPNT_SPARSE, "T275 the sparse QP engine answers");
+        double pobj = 0.0, want = -5.0 + 25.0 / n;
+        PRIMAL_getprimalobj(t, PRIMAL_SOL_ITR, &pobj);
+        check(fabs(pobj - want) <= 1e-7 * (1.0 + fabs(want)), "T275 objective -5 + 25/n");
+        double *x = (double *)malloc((size_t)n * sizeof(double));
+        if (x && PRIMAL_getxx(t, PRIMAL_SOL_ITR, x) == PRIMAL_RES_OK) {
+            double sum = 0.0, viol = 0.0;
+            for (int j = 0; j < n; j++) {
+                sum += x[j];
+                if (-x[j] > viol) viol = -x[j];
+                if (x[j] - 10.0 > viol) viol = x[j] - 10.0;
+            }
+            if (sum - 5.0 > viol) viol = sum - 5.0;
+            check(viol <= 1e-7, "T275 the point measures feasible");
+        } else {
+            check(0, "T275 getxx");
+        }
+        free(x);
+        pend(&p);
+    }
+}
+
 /* Every test, in the order the suite runs them, named T<id> after its function.
  * The name also labels the failures of a test that sets no cur_name itself. */
 #define TEST(id) { "T" #id, test_t##id }
 static const struct { const char *name; void (*run)(void); } tests[] = {
+    TEST(275),
     TEST(274),
     TEST(273),
     TEST(272),

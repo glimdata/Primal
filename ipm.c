@@ -810,7 +810,9 @@ int ipm_solve_std_csc(const int *Aptr, const int *Arow, const double *Aval,
 }
 
 /* factor a dense symmetric m x m matrix (lower triangle read) + already-added
- * delta on the diagonal, via the sparse Cholesky. Diagonal is always emitted. */
+ * delta on the diagonal, via the sparse Cholesky. Diagonal is always emitted.
+ * A K with gaps is factored under a fill-reducing ordering, so the factor is
+ * solved with spchol_solve_ord, which undoes it. */
 static SpChol *spchol_from_dense(const double *Kd, int m,
                                  int *Kp, int *kcap, int **Ki, double **Kx) {
     /* Count the lower triangle first: a full one needs no fill-reducing order
@@ -1090,7 +1092,7 @@ int ipm_solve_qp_csc(const int *Aptr, const int *Arow, const double *Aval,
         for (int i = 0; i < m; i++) { double s = 0.0;
             for (int p = rptr[i]; p < rptr[i + 1]; p++) s += rval[p] * u[ridx[p]];
             tmpm[i] = -rp[i] - s; }
-        if (spchol_solve(Lk, tmpm)) { spchol_free(Lm); spchol_free(Lk); status = IPM_SINGULAR; break; }
+        if (spchol_solve_ord(Lk, tmpm)) { spchol_free(Lm); spchol_free(Lk); status = IPM_SINGULAR; break; }
         for (int i = 0; i < m; i++) dyA[i] = tmpm[i];
         for (int j = 0; j < n; j++) { double s = u[j];
             for (int i = 0; i < m; i++) s += W[(size_t)j * m + i] * dyA[i];
@@ -1125,7 +1127,7 @@ int ipm_solve_qp_csc(const int *Aptr, const int *Arow, const double *Aval,
         for (int i = 0; i < m; i++) { double s = 0.0;
             for (int p = rptr[i]; p < rptr[i + 1]; p++) s += rval[p] * u[ridx[p]];
             tmpm[i] = -rp[i] - s; }
-        if (spchol_solve(Lk, tmpm)) { spchol_free(Lm); spchol_free(Lk); status = IPM_SINGULAR; break; }
+        if (spchol_solve_ord(Lk, tmpm)) { spchol_free(Lm); spchol_free(Lk); status = IPM_SINGULAR; break; }
         for (int j = 0; j < n; j++) { double s = u[j];
             for (int i = 0; i < m; i++) s += W[(size_t)j * m + i] * tmpm[i];
             dxC[j] = s; }

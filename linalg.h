@@ -95,7 +95,9 @@ typedef struct {
     int *Li;      /* row indices */
     double *Lx;   /* values */
     int *perm;    /* fill-reducing ordering perm[k] = original index at position k
-                   * (NULL if the natural order was used); spchol_solve undoes it */
+                   * (NULL if the natural order was used); spchol_solve_ord undoes
+                   * it, spchol_solve and spchol_solve_all read the factor in its
+                   * own order */
 } SpChol;
 
 /* Factor K in natural order (no fill-reducing permutation).
