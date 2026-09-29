@@ -146,6 +146,19 @@ def make_qp(n, m, seed):
     return c, rows, lo, up, vt, Q
 
 
+def make_qp_sep(n, m, seed):
+    """min sum(x_j^2 - x_j) s.t. sum x_j <= 5, 0 <= x_j <= 10 (m = 1, no seed).
+    Separable with a closed form: for n > 10 the optimum is x_j = 5/n with
+    objective -5 + 25/n."""
+    c = [-1.0] * n
+    rows = [('L', 5.0, {j: 1.0 for j in range(n)})]
+    Q = {(j, j): 2.0 for j in range(n)}
+    lo = [0.0] * n
+    up = [10.0] * n
+    vt = ['C'] * n
+    return c, rows, lo, up, vt, Q
+
+
 def make_milp(n, m, seed):
     """max c'x s.t. A x <= b, first half binary, rest continuous in [0,1]."""
     rng = random.Random(seed)
@@ -170,15 +183,17 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     specs = []
     for n, m in ((50, 25), (100, 50), (200, 100), (400, 200)):
-        specs.append(("lp", n, m, make_lp, False))
+        specs.append(("lp", "lp", n, m, make_lp, False))
     for n, m in ((50, 25), (100, 50), (200, 100)):
-        specs.append(("qp", n, m, make_qp, False))
+        specs.append(("qp", "qp", n, m, make_qp, False))
+    for n in (50, 100, 200, 400):
+        specs.append(("qp_sep", "qp", n, 1, make_qp_sep, False))
     for n, m in ((40, 20), (60, 30), (80, 40)):
-        specs.append(("milp", n, m, make_milp, True))
+        specs.append(("milp", "milp", n, m, make_milp, True))
     index = []
-    for cls, n, m, fn, sense_max in specs:
+    for family, cls, n, m, fn, sense_max in specs:
         c, rows, lo, up, vt, Q = fn(n, m, 20260912 + n)
-        name = "%s_%dx%d" % (cls, n, m)
+        name = "%s_%dx%d" % (family, n, m)
         path = os.path.join(args.out, name + ".mps")
         write_mps(path, name, sense_max, c, rows, lo, up, vt, Q)
         nnz = count_nnz(c, rows, Q)
