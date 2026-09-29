@@ -811,8 +811,8 @@ int ipm_solve_std_csc(const int *Aptr, const int *Arow, const double *Aval,
 
 /* factor a dense symmetric m x m matrix (lower triangle read) + already-added
  * delta on the diagonal, via the sparse Cholesky. Diagonal is always emitted.
- * A K with gaps is factored under a fill-reducing ordering, so the factor is
- * solved with spchol_solve_ord, which undoes it. */
+ * The factor may carry a fill-reducing ordering, so it is solved with
+ * spchol_solve_ord, which undoes it. */
 static SpChol *spchol_from_dense(const double *Kd, int m,
                                  int *Kp, int *kcap, int **Ki, double **Kx) {
     /* Count the lower triangle first: a full one needs no fill-reducing order
